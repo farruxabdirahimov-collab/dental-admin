@@ -113,10 +113,10 @@ const SuperAdmin = {
     `);
   },
 
-  createClinic() {
-    const name = document.getElementById('new-clinic-name')?.value?.trim();
-    const address = document.getElementById('new-clinic-address')?.value?.trim();
-    const phone = document.getElementById('new-clinic-phone')?.value?.trim();
+  async createClinic() {
+    const name      = document.getElementById('new-clinic-name')?.value?.trim();
+    const address   = document.getElementById('new-clinic-address')?.value?.trim();
+    const phone     = document.getElementById('new-clinic-phone')?.value?.trim();
     const adminUser = document.getElementById('new-clinic-admin-user')?.value?.trim();
     const adminPass = document.getElementById('new-clinic-admin-pass')?.value;
 
@@ -125,34 +125,20 @@ const SuperAdmin = {
       return;
     }
 
-    const clinicId = DB.generateId('clinic_');
-    const clinic = { id: clinicId, name, address, phone, color: '#6366f1', createdAt: new Date().toISOString() };
-    DB.saveClinic(clinic);
+    const btn = document.querySelector('.modal-footer .btn-primary');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Yaratilmoqda...'; }
 
-    DB.saveUser({
-      id: DB.generateId('user_'),
-      fullName: `${name} Rahbari`,
-      username: adminUser,
-      password: adminPass,
-      role: 'admin',
-      clinicId,
-      createdAt: new Date().toISOString()
-    });
-
-    // Default qabulxona xodimi
-    DB.saveUser({
-      id: DB.generateId('user_'),
-      fullName: 'Qabulxona',
-      username: `${adminUser}_kassir`,
-      password: adminPass + '_kassir',
-      role: 'receptionist',
-      clinicId,
-      createdAt: new Date().toISOString()
-    });
-
-    Utils.closeModal();
-    Utils.toast('success', 'Filial yaratildi!', `${name} muvaffaqiyatli yaratildi`);
-    this.renderClinics();
+    try {
+      await API.post('/clinics', { name, address, phone, adminUser, adminPass });
+      // Super admin uchun klinikalar qayta yuklanadi
+      DB._c.clinics = await API.get('/clinics');
+      Utils.closeModal();
+      Utils.toast('success', 'Filial yaratildi!', `${name} muvaffaqiyatli yaratildi`);
+      this.renderClinics();
+    } catch (err) {
+      Utils.toast('error', 'Xato', err.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Yaratish'; }
+    }
   },
 
   enterClinic(clinicId) {

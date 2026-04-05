@@ -45,16 +45,24 @@ const Router = {
       return;
     }
 
-    // Role-based redirects
+    // Role-based redirects from login
     if (path === '/login' && session) {
       if (session.role === 'super_admin') { this.navigate('/super/clinics'); return; }
       if (session.role === 'admin') { this.navigate('/admin/dashboard'); return; }
       if (session.role === 'receptionist') { this.navigate('/reception/daily'); return; }
     }
 
-    // Admin only routes
-    const adminRoutes = ['/admin/', '/super/'];
-    const isAdminRoute = adminRoutes.some(r => path.startsWith(r.replace('/', '')));
+    // Kassir admin sahifalariga kira olmaydi
+    if (session && session.role === 'receptionist' && path.startsWith('/admin')) {
+      this.navigate('/reception/daily');
+      return;
+    }
+
+    // Super admin check
+    if (path.startsWith('/super') && session && session.role !== 'super_admin') {
+      this.navigate('/admin/dashboard');
+      return;
+    }
 
     const handler = this.routes[path] || this.routes['*'];
     if (handler) {

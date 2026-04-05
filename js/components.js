@@ -30,12 +30,20 @@ const Components = {
       { path: '/reception/history', icon: 'history', label: 'Kunlar tarixi' },
     ];
 
-    let navItems = isSuper ? superNavItems : (isAdmin ? adminNavItems : receptionNavItems);
-    if (isAdmin && !isSuper) {
-      navItems = [...adminNavItems, { divider: true, label: 'QABULXONA' },
+    // Kassir faqat qabulxona sahifalarini ko'radi
+    let navItems;
+    if (isSuper) {
+      navItems = superNavItems;
+    } else if (isAdmin) {
+      navItems = [
+        ...adminNavItems,
+        { divider: true, label: 'QABULXONA' },
         { path: '/reception/daily', icon: 'calendar', label: 'Kunlik kiritish' },
         { path: '/reception/history', icon: 'history', label: 'Kunlar tarixi' },
       ];
+    } else {
+      // Kassir — faqat qabulxona
+      navItems = receptionNavItems;
     }
 
     const navHtml = navItems.map(item => {
@@ -195,6 +203,16 @@ const Components = {
         </div>
 
         <div class="form-group">
+          <label class="label">🎯 Oylik maqsad (so'm)</label>
+          <div class="input-prefix-wrap">
+            <span class="input-prefix">so'm</span>
+            <input class="input" id="doctor-goal" type="number" min="0" step="500000"
+              value="${d.monthlyGoal || 0}" placeholder="12000000" />
+          </div>
+          <div class="hint" style="margin-top:4px">Rahbar belgilaydigan oylik JVB maqsadi (Telegram xabarda ko'rinadi)</div>
+        </div>
+
+        <div class="form-group">
           <label class="label">Holat</label>
           <div class="toggle-wrap" onclick="this.querySelector('.toggle').classList.toggle('on');document.getElementById('doctor-active').value=this.querySelector('.toggle').classList.contains('on')?'1':'0'">
             <div class="toggle ${d.active !== false ? 'on' : ''}"></div>
@@ -258,6 +276,7 @@ const Components = {
       implantValue,
       color,
       active,
+      monthlyGoal: parseFloat(document.getElementById('doctor-goal')?.value) || 0,
       updatedAt: new Date().toISOString(),
       createdAt: isEdit ? undefined : new Date().toISOString()
     };

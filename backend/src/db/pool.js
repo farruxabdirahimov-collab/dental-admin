@@ -30,6 +30,12 @@ async function initDb() {
   await pool.query(schemaSql);
   console.log('✅ Database schema tayyor');
 
+  // ── Migratsiyalar (idempotent) ─────────────────────────────────────────────
+  await pool.query(`
+    ALTER TABLE doctors ADD COLUMN IF NOT EXISTS monthly_goal BIGINT DEFAULT 0;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS telegram_id  TEXT;
+  `);
+
   // Demo data — faqat klinikalar bo'sh bo'lsa
   const { rows } = await pool.query('SELECT COUNT(*) AS cnt FROM clinics');
   if (parseInt(rows[0].cnt) === 0) {
