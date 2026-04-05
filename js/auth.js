@@ -1,44 +1,51 @@
 /**
- * DentAdmin — Auth System
+ * DentAdmin — Auth System (JWT bilan)
  */
 
 const Auth = {
   SESSION_KEY: 'da_session',
 
-  login(username, password, clinicId) {
-    const user = DB.findUserByLogin(username, clinicId);
-    if (!user) return { ok: false, error: 'Foydalanuvchi topilmadi' };
-    if (user.password !== password) return { ok: false, error: 'Parol noto\'g\'ri' };
-    if (!user.active && user.active !== undefined) return { ok: false, error: 'Hisob bloklangan' };
+  // ── LOGIN (async — API ga murojaat qiladi) ────────────────────────────────
+  async login(username, password, clinicId) {
+    try {
+      const res = await API.post('/auth/login', { username, password, clinicId: clinicId || undefined });
 
-    const session = {
-      userId: user.id,
-      username: user.username,
-      fullName: user.fullName,
-      role: user.role,
-      clinicId: user.role === 'super_admin' ? null : user.clinicId,
-      loginAt: new Date().toISOString()
-    };
-    localStorage.setItem(this.SESSION_KEY, JSON.stringify(session));
-    return { ok: true, session };
+      // JWT token saqlash
+      API.setToken(res.token);
+
+      // Session saqlash
+      const session = res.user;
+      localStorage.setItem(this.SESSION_KEY, JSON.stringify(session));
+
+      // Barcha klinika ma'lumotlarini yuklash
+      await DB.loadAll(session.clinicId);
+
+      return { ok: true, session };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Kirish xatosi' };
+    }
   },
 
+  // ── LOGOUT ────────────────────────────────────────────────────────────────
   logout() {
+    API.clearToken();
     localStorage.removeItem(this.SESSION_KEY);
     window.location.hash = '#/login';
   },
 
+  // ── SESSION ───────────────────────────────────────────────────────────────
   getSession() {
     return JSON.parse(localStorage.getItem(this.SESSION_KEY) || 'null');
   },
 
   isLoggedIn() {
-    return !!this.getSession();
+    return !!this.getSession() && API.hasToken();
   },
 
+  // ── SAHIFA KIRISH TEKSHIRUVI ──────────────────────────────────────────────
   requireAuth(allowedRoles = []) {
     const session = this.getSession();
-    if (!session) {
+    if (!session || !API.hasToken()) {
       window.location.hash = '#/login';
       return null;
     }
@@ -49,32 +56,26 @@ const Auth = {
     return session;
   },
 
-  isSuperAdmin() {
-    const s = this.getSession();
-    return s && s.role === 'super_admin';
-  },
+  // ── ROL TEKSHIRUVLARI ─────────────────────────────────────────────────────
+  isSuperAdmin() { const s = this.getSession(); return s && s.role === 'super_admin'; },
+  isAdmin()      { const s = this.getSession(); return s && (s.role === 'admin' || s.role === 'super_admin'); },
+  isReceptionist() { const s = this.getSession(); return s && s.role === 'receptionist'; },
 
-  isAdmin() {
-    const s = this.getSession();
-    return s && (s.role === 'admin' || s.role === 'super_admin');
-  },
-
-  isReceptionist() {
-    const s = this.getSession();
-    return s && s.role === 'receptionist';
-  },
-
-  getClinicId() {
-    const s = this.getSession();
-    return s ? s.clinicId : null;
-  },
+  getClinicId() { const s = this.getSession(); return s ? s.clinicId : null; },
 
   getRoleLabel(role) {
     const labels = {
-      super_admin: '🔑 Super Admin',
-      admin: '👔 Rahbar',
-      receptionist: '🏥 Qabulxona'
+      super_admin:  '🔑 Super Admin',
+      admin:        '👑 Rahbar',
+      receptionist: '💼 Kassir',
+      doctor:       '👨‍⚕️ Vrach',
+      nurse:        '🩺 Hamshira',
     };
     return labels[role] || role;
-  }
+  },
+
+  // ── Sahifa yuklanishida token tiklanadi ───────────────────────────────────
+  restore() {
+    API.loadToken();
+  },
 };

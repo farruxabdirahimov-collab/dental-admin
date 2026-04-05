@@ -3,26 +3,31 @@
  */
 
 const AdminDashboard = {
-  render() {
+  async render() {
     const session = Auth.requireAuth(['admin', 'super_admin']);
     if (!session) return;
 
     const clinicId = session.clinicId;
     const { year, month } = Utils.getCurrentMonth();
-    const monthly = FormulaEngine.calcMonthlyTotal(clinicId, year, month);
+
+    // Joriy oy + oxirgi 6 oy parallel yuklash
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      let m = month - i, y = year;
+      if (m <= 0) { m += 12; y -= 1; }
+      months.push({ y, m, label: Utils.getMonthName(m) });
+    }
+
+    const [monthly, ...last5] = await Promise.all([
+      FormulaEngine.calcMonthlyTotal(clinicId, year, month),
+      ...months.map(x => FormulaEngine.calcMonthlyTotal(clinicId, x.y, x.m))
+    ]);
+
+    const last6 = months.map((x, i) => ({ label: x.label, tushum: last5[i].tushum, foyda: last5[i].foyda }));
+
     const settings = DB.getSettings(clinicId);
     const paymentTypes = DB.getPaymentTypes(clinicId).filter(p => p.active && p.id !== 'naqd');
     const doctors = DB.getDoctors(clinicId);
-
-    // Oxirgi 6 oy
-    const last6 = [];
-    for (let i = 5; i >= 0; i--) {
-      let m = month - i;
-      let y = year;
-      if (m <= 0) { m += 12; y -= 1; }
-      const data = FormulaEngine.calcMonthlyTotal(clinicId, y, m);
-      last6.push({ label: Utils.getMonthName(m), tushum: data.tushum, foyda: data.foyda });
-    }
 
     const chartData = {
       labels: last6.map(d => d.label),

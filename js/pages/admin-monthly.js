@@ -14,7 +14,7 @@ const AdminMonthly = {
   clinicId: null,
   _data: null,   // cache
 
-  render(params = {}) {
+  async render(params = {}) {
     const session = Auth.requireAuth(['admin', 'super_admin']);
     if (!session) return;
 
@@ -23,7 +23,7 @@ const AdminMonthly = {
     this.month    = parseInt(params.month) || now.month;
     this.clinicId = session.clinicId;
 
-    this._data = this._loadData();
+    this._data = await this._loadData();
     const d = this._data;
 
     const content = `
@@ -68,9 +68,11 @@ const AdminMonthly = {
   },
 
   // ========== MA'LUMOTLARNI YUKLASH ==========
-  _loadData() {
-    const monthly  = FormulaEngine.calcMonthlyTotal(this.clinicId, this.year, this.month);
-    const reports  = DB.getMonthlyReports(this.clinicId, this.year, this.month);
+  async _loadData() {
+    const [monthly, reports] = await Promise.all([
+      FormulaEngine.calcMonthlyTotal(this.clinicId, this.year, this.month),
+      DB.getMonthlyReports(this.clinicId, this.year, this.month),
+    ]);
     const doctors  = DB.getDoctors(this.clinicId);
     const nurses   = DB.getNurses(this.clinicId);
     const settings = DB.getSettings(this.clinicId);

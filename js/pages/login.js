@@ -4,7 +4,8 @@
 
 const LoginPage = {
   render() {
-    const clinics = DB.getClinics();
+    // Login sahifasida klinikalar ro'yxati API dan emas, demo uchun bitta klinikani ko'rsatamiz
+    const clinics = [];   // Login da clinic tanlash kerak emas — username/parol yetarli
     const clinicList = clinics.length ? clinics.map(c => `
       <div class="clinic-option ${clinics.length === 1 ? 'selected' : ''}" data-id="${c.id}" onclick="LoginPage.selectClinic('${c.id}')">
         <div class="clinic-option-dot" style="background:${c.color || 'var(--brand-primary)'}"></div>
@@ -74,7 +75,7 @@ const LoginPage = {
     });
   },
 
-  submit() {
+  async submit() {
     const username = document.getElementById('login-username')?.value?.trim();
     const password = document.getElementById('login-password')?.value;
     const clinicId = document.getElementById('selected-clinic-id')?.value;
@@ -88,22 +89,20 @@ const LoginPage = {
     }
 
     btn.disabled = true;
-    btn.textContent = 'Tekshirilmoqda...';
+    btn.textContent = '⏳ Tekshirilmoqda...';
+    errorEl.style.display = 'none';
 
-    setTimeout(() => {
-      const result = Auth.login(username, password, clinicId || null);
-      if (result.ok) {
-        const session = result.session;
-        if (session.role === 'super_admin') Router.go('/super/clinics');
-        else if (session.role === 'admin') Router.go('/admin/dashboard');
-        else Router.go('/reception/daily');
-      } else {
-        errorEl.textContent = result.error;
-        errorEl.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Kirish →';
-        btn.className = 'btn btn-primary btn-lg btn-full';
-      }
-    }, 400);
+    const result = await Auth.login(username, password, clinicId || null);
+    if (result.ok) {
+      const session = result.session;
+      if (session.role === 'super_admin') Router.go('/super/clinics');
+      else if (session.role === 'admin') Router.go('/admin/dashboard');
+      else Router.go('/reception/daily');
+    } else {
+      errorEl.textContent = result.error;
+      errorEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Kirish →';
+    }
   }
 };

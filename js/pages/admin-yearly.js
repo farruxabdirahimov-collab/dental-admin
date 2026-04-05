@@ -5,18 +5,19 @@
 const AdminYearly = {
   year: null,
 
-  render(params = {}) {
+  async render(params = {}) {
     const session = Auth.requireAuth(['admin', 'super_admin']);
     if (!session) return;
 
     this.year = parseInt(params.year) || new Date().getFullYear();
     const clinicId = session.clinicId;
 
-    const monthlyData = [];
-    for (let m = 1; m <= 12; m++) {
-      const data = FormulaEngine.calcMonthlyTotal(clinicId, this.year, m);
-      monthlyData.push({ month: m, ...data });
-    }
+    const monthlyData = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        FormulaEngine.calcMonthlyTotal(clinicId, this.year, i + 1)
+          .then(data => ({ month: i + 1, ...data }))
+      )
+    );
 
     const totalTushum = monthlyData.reduce((s, d) => s + d.tushum, 0);
     const totalFoyda = monthlyData.reduce((s, d) => s + d.foyda, 0);

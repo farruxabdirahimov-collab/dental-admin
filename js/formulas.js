@@ -156,8 +156,8 @@ const FormulaEngine = {
    * Berilishi kerak = Tushum - Umumiy avans - Xarajatlar - (Inkassa+Terminal+Prechesleniya+P2P)
    * Foyda = Tushum - Xarajatlar - Vrachlar VU - Arenda - Kommunal
    */
-  calcMonthlyTotal(clinicId, year, month) {
-    const reports = DB.getMonthlyReports(clinicId, year, month);
+  async calcMonthlyTotal(clinicId, year, month) {
+    const reports = await DB.getMonthlyReports(clinicId, year, month);
     const doctors = DB.getDoctors(clinicId);
     const settings = DB.getSettings(clinicId);
     // Faqat naqt bo'lmagan to'lov turlarini olish

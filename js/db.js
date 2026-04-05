@@ -1,293 +1,238 @@
 /**
- * DentAdmin — LocalStorage Database Layer
- * Keyinchalik REST API ga o'tish uchun tayyor arxitektura
+ * DentAdmin — Data Layer
+ * API-backed + in-memory cache
+ *
+ * STRATEGIYA:
+ *  1. Login → DB.loadAll(clinicId) → barcha ma'lumot xotiraga yuklanadi
+ *  2. O'qishlar — xotiradan (sinxron, tez)
+ *  3. Yozishlar — xotirani yangilab, background da API ga yuboradi
+ *  4. Hisobotlar — alohida async (sanaga qarab lazy load)
  */
 
 const DB = {
-  // ========== KLINIKALAR ==========
-  getClinics() {
-    return JSON.parse(localStorage.getItem('da_clinics') || '[]');
+  // ── In-memory cache ───────────────────────────────────────────────────────
+  _c: {
+    clinics:      [],
+    users:        [],
+    doctors:      {},   // { clinicId: [...] }
+    nurses:       {},   // { clinicId: [...] }
+    settings:     {},   // { clinicId: {...} }
+    paymentTypes: {},   // { clinicId: [...] }
+    expenseCats:  {},   // { clinicId: [...] }
+    customFields: {},   // { clinicId: [...] }
   },
-  saveClinic(clinic) {
-    const clinics = this.getClinics();
-    const idx = clinics.findIndex(c => c.id === clinic.id);
-    if (idx >= 0) clinics[idx] = clinic;
-    else clinics.push(clinic);
-    localStorage.setItem('da_clinics', JSON.stringify(clinics));
-    return clinic;
-  },
-  deleteClinic(id) {
-    const clinics = this.getClinics().filter(c => c.id !== id);
-    localStorage.setItem('da_clinics', JSON.stringify(clinics));
-  },
-  getClinicById(id) {
-    return this.getClinics().find(c => c.id === id);
-  },
+  _reportCache: new Map(),  // key: `cid_date`, value: report
+  _currentClinicId: null,
 
-  // ========== FOYDALANUVCHILAR ==========
-  getUsers() {
-    return JSON.parse(localStorage.getItem('da_users') || '[]');
-  },
-  saveUser(user) {
-    const users = this.getUsers();
-    const idx = users.findIndex(u => u.id === user.id);
-    if (idx >= 0) users[idx] = user;
-    else users.push(user);
-    localStorage.setItem('da_users', JSON.stringify(users));
-    return user;
-  },
-  deleteUser(id) {
-    const users = this.getUsers().filter(u => u.id !== id);
-    localStorage.setItem('da_users', JSON.stringify(users));
-  },
-  findUserByLogin(username, clinicId) {
-    return this.getUsers().find(u =>
-      u.username === username &&
-      (u.role === 'super_admin' || u.clinicId === clinicId)
-    );
-  },
-
-  // ========== SOZLAMALAR ==========
-  getSettings(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_settings') || '{}');
-    return all[clinicId] || {};
-  },
-  updateSetting(clinicId, key, value) {
-    const all = JSON.parse(localStorage.getItem('da_settings') || '{}');
-    if (!all[clinicId]) all[clinicId] = {};
-    all[clinicId][key] = value;
-    localStorage.setItem('da_settings', JSON.stringify(all));
-  },
-  updateSettings(clinicId, updates) {
-    const all = JSON.parse(localStorage.getItem('da_settings') || '{}');
-    if (!all[clinicId]) all[clinicId] = {};
-    Object.assign(all[clinicId], updates);
-    localStorage.setItem('da_settings', JSON.stringify(all));
-  },
-
-  // ========== VRACHLAR ==========
-  getDoctors(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_doctors') || '{}');
-    return (all[clinicId] || []).filter(d => !d.deleted);
-  },
-  saveDoctor(clinicId, doctor) {
-    const all = JSON.parse(localStorage.getItem('da_doctors') || '{}');
-    if (!all[clinicId]) all[clinicId] = [];
-    const idx = all[clinicId].findIndex(d => d.id === doctor.id);
-    if (idx >= 0) all[clinicId][idx] = doctor;
-    else all[clinicId].push(doctor);
-    localStorage.setItem('da_doctors', JSON.stringify(all));
-    return doctor;
-  },
-  deleteDoctor(clinicId, id) {
-    const all = JSON.parse(localStorage.getItem('da_doctors') || '{}');
-    if (!all[clinicId]) return;
-    const idx = all[clinicId].findIndex(d => d.id === id);
-    if (idx >= 0) all[clinicId][idx].deleted = true;
-    localStorage.setItem('da_doctors', JSON.stringify(all));
-  },
-
-  // ========== HAMSHIRALAR ==========
-  getNurses(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_nurses') || '{}');
-    return (all[clinicId] || []).filter(n => !n.deleted);
-  },
-  saveNurse(clinicId, nurse) {
-    const all = JSON.parse(localStorage.getItem('da_nurses') || '{}');
-    if (!all[clinicId]) all[clinicId] = [];
-    const idx = all[clinicId].findIndex(n => n.id === nurse.id);
-    if (idx >= 0) all[clinicId][idx] = nurse;
-    else all[clinicId].push(nurse);
-    localStorage.setItem('da_nurses', JSON.stringify(all));
-    return nurse;
-  },
-  deleteNurse(clinicId, id) {
-    const all = JSON.parse(localStorage.getItem('da_nurses') || '{}');
-    if (!all[clinicId]) return;
-    const idx = all[clinicId].findIndex(n => n.id === id);
-    if (idx >= 0) all[clinicId][idx].deleted = true;
-    localStorage.setItem('da_nurses', JSON.stringify(all));
-  },
-
-  // ========== TO'LOV TURLARI ==========
-  getPaymentTypes(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_payment_types') || '{}');
-    return all[clinicId] || [
-      { id: 'naqd', name: 'Naqd pul', icon: '💵', active: true, builtin: true },
-      { id: 'terminal', name: 'Terminal', icon: '💳', active: true, builtin: true },
-      { id: 'qr', name: 'QR-kod', icon: '📱', active: true, builtin: true },
-      { id: 'inkassa', name: 'Inkassa', icon: '🏦', active: true, builtin: true },
-      { id: 'prechesleniya', name: 'Prechesleniya', icon: '🔄', active: true, builtin: true },
-      { id: 'p2p', name: 'P2P / Payme', icon: '📲', active: true, builtin: false },
-    ];
-  },
-  savePaymentTypes(clinicId, types) {
-    const all = JSON.parse(localStorage.getItem('da_payment_types') || '{}');
-    all[clinicId] = types;
-    localStorage.setItem('da_payment_types', JSON.stringify(all));
-  },
-
-  // ========== XARAJAT KATEGORIYALARI ==========
-  getExpenseCategories(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_expense_cats') || '{}');
-    return all[clinicId] || [
-      { id: 'arenda', name: 'Arenda', active: true },
-      { id: 'kommunal', name: 'Kommunal', active: true },
-      { id: 'texnik', name: 'Texnik', active: true },
-      { id: 'maosh', name: 'Xodim maoshi', active: true },
-      { id: 'boshqa', name: 'Boshqa', active: true },
-    ];
-  },
-  saveExpenseCategories(clinicId, cats) {
-    const all = JSON.parse(localStorage.getItem('da_expense_cats') || '{}');
-    all[clinicId] = cats;
-    localStorage.setItem('da_expense_cats', JSON.stringify(all));
-  },
-
-  // ========== QO'SHIMCHA MAYDONLAR ==========
-  getCustomFields(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_custom_fields') || '{}');
-    return all[clinicId] || [];
-  },
-  saveCustomFields(clinicId, fields) {
-    const all = JSON.parse(localStorage.getItem('da_custom_fields') || '{}');
-    all[clinicId] = fields;
-    localStorage.setItem('da_custom_fields', JSON.stringify(all));
-  },
-
-  // ========== KUNLIK HISOBOT ==========
-  getDailyReports(clinicId) {
-    const all = JSON.parse(localStorage.getItem('da_daily_reports') || '{}');
-    return all[clinicId] || [];
-  },
-  getDailyReport(clinicId, date) {
-    const reports = this.getDailyReports(clinicId);
-    return reports.find(r => r.date === date) || null;
-  },
-  saveDailyReport(clinicId, report) {
-    const all = JSON.parse(localStorage.getItem('da_daily_reports') || '{}');
-    if (!all[clinicId]) all[clinicId] = [];
-    const idx = all[clinicId].findIndex(r => r.date === report.date);
-    if (idx >= 0) all[clinicId][idx] = report;
-    else all[clinicId].push(report);
-    localStorage.setItem('da_daily_reports', JSON.stringify(all));
-    return report;
-  },
-  deleteDailyReport(clinicId, date) {
-    const all = JSON.parse(localStorage.getItem('da_daily_reports') || '{}');
-    if (!all[clinicId]) return;
-    all[clinicId] = all[clinicId].filter(r => r.date !== date);
-    localStorage.setItem('da_daily_reports', JSON.stringify(all));
-  },
-
-  // ========== OYLIK AGREGATSIYA ==========
-  getMonthlyReports(clinicId, year, month) {
-    // month: 1-12
-    const reports = this.getDailyReports(clinicId);
-    return reports.filter(r => {
-      const d = new Date(r.date);
-      return d.getFullYear() === year && (d.getMonth() + 1) === month;
-    }).sort((a, b) => a.date.localeCompare(b.date));
-  },
-
-  getYearlyReports(clinicId, year) {
-    const reports = this.getDailyReports(clinicId);
-    return reports.filter(r => {
-      const d = new Date(r.date);
-      return d.getFullYear() === year;
-    });
-  },
-
-  // ========== UTIL: ID GENERATSIYA ==========
   generateId(prefix = '') {
     return prefix + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
   },
 
-  // ========== DEMO MA'LUMOTLAR ==========
-  seedDemo() {
-    if (localStorage.getItem('da_seeded')) return;
+  // ── LOGIN da chaqiriladi — barcha ma'lumotni yuklaydi ────────────────────
+  async loadAll(clinicId) {
+    this._currentClinicId = clinicId;
+    if (!clinicId) return; // super_admin
 
-    // Super admin
-    const superAdmin = {
-      id: 'user_super',
-      username: 'admin',
-      password: 'admin123',
-      role: 'super_admin',
-      fullName: 'Super Admin',
-      clinicId: null
-    };
+    const today = Utils ? Utils.getTodayStr() : new Date().toISOString().split('T')[0];
 
-    // Klinika
-    const clinic = {
-      id: 'clinic_main',
-      name: 'FDC Stomatologiya',
-      address: 'Toshkent, Yunusobod tumani',
-      phone: '+998 90 123-45-67',
-      color: '#6366f1',
-      createdAt: new Date().toISOString()
-    };
+    const [doctors, nurses, settings, users, pts, cats, cfs, todayReport] =
+      await Promise.all([
+        API.get(`/clinics/${clinicId}/doctors`),
+        API.get(`/clinics/${clinicId}/nurses`),
+        API.get(`/clinics/${clinicId}/settings`),
+        API.get(`/clinics/${clinicId}/users`),
+        API.get(`/clinics/${clinicId}/config/payment_types`),
+        API.get(`/clinics/${clinicId}/config/expense_cats`),
+        API.get(`/clinics/${clinicId}/config/custom_fields`),
+        API.get(`/clinics/${clinicId}/reports/daily?date=${today}`).catch(() => null),
+      ]);
 
-    // Rahbar
-    const rahbar = {
-      id: 'user_rahbar',
-      username: 'rahbar',
-      password: 'rahbar123',
-      role: 'admin',
-      fullName: 'Farrukh Abdirakhimov',
-      clinicId: clinic.id
-    };
+    this._c.doctors[clinicId]      = doctors      || [];
+    this._c.nurses[clinicId]       = nurses       || [];
+    this._c.settings[clinicId]     = settings     || {};
+    this._c.users                  = users        || [];
+    this._c.paymentTypes[clinicId] = pts          || [];
+    this._c.expenseCats[clinicId]  = cats         || [];
+    this._c.customFields[clinicId] = cfs          || [];
 
-    // Qabulxona
-    const reception = {
-      id: 'user_recep',
-      username: 'kassir',
-      password: 'kassir123',
-      role: 'receptionist',
-      fullName: 'Qabulxona Xodimi',
-      clinicId: clinic.id
-    };
+    if (todayReport) {
+      this._reportCache.set(`${clinicId}_${today}`, todayReport);
+    }
 
-    // Vrachlar
-    const doctors = [
-      { id: 'dr_shaxruz', name: 'Dr. Shaxruz', percent: 35, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#6366f1' },
-      { id: 'dr_otanazar', name: 'Dr. Otanazar', percent: 35, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#8b5cf6' },
-      { id: 'dr_abror', name: 'Dr. Abror', percent: 35, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#06b6d4' },
-      { id: 'dr_jahongir', name: 'Dr. Jahongir', percent: 35, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#10b981' },
-      { id: 'dr_oybek_u', name: 'Dr. Oybek Usanovich', percent: 30, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#f59e0b' },
-      { id: 'dr_bexzod', name: 'Dr. Bexzod', percent: 30, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#ef4444' },
-      { id: 'dr_jasur', name: 'Dr. Jasur', percent: 30, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#ec4899' },
-      { id: 'dr_oybek_q', name: 'Dr. Oybek Qazaqov', percent: 30, formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value', implantMode: 'fixed', implantValue: 300000, active: true, color: '#84cc16' },
+    // Super admin: klinikalar ro'yxatini yuklash
+    try {
+      const user = Auth.getSession();
+      if (user && user.role === 'super_admin') {
+        this._c.clinics = await API.get('/clinics');
+      }
+    } catch {}
+  },
+
+  // ── KLINIKALAR ────────────────────────────────────────────────────────────
+  getClinics() { return this._c.clinics; },
+  getClinicById(id) { return this._c.clinics.find(c => c.id === id); },
+  saveClinic(clinic) {
+    const idx = this._c.clinics.findIndex(c => c.id === clinic.id);
+    if (idx >= 0) this._c.clinics[idx] = clinic;
+    else this._c.clinics.push(clinic);
+    API.put(`/clinics/${clinic.id}`, clinic).catch(console.error);
+    return clinic;
+  },
+  deleteClinic(id) {
+    this._c.clinics = this._c.clinics.filter(c => c.id !== id);
+  },
+
+  // ── FOYDALANUVCHILAR ──────────────────────────────────────────────────────
+  getUsers() { return this._c.users; },
+  findUserByLogin(username, clinicId) {
+    return this._c.users.find(u =>
+      u.username === username &&
+      (u.role === 'super_admin' || u.clinicId === clinicId || u.clinic_id === clinicId)
+    );
+  },
+  saveUser(user) {
+    const cid = this._currentClinicId;
+    const idx = this._c.users.findIndex(u => u.id === user.id);
+    const isNew = idx < 0;
+    if (isNew) this._c.users.push(user);
+    else this._c.users[idx] = user;
+    if (isNew) API.post(`/clinics/${cid}/users`, user).catch(console.error);
+    else API.put(`/clinics/${cid}/users/${user.id}`, user).catch(console.error);
+    return user;
+  },
+  deleteUser(id) {
+    const cid = this._currentClinicId;
+    this._c.users = this._c.users.filter(u => u.id !== id);
+    API.del(`/clinics/${cid}/users/${id}`).catch(console.error);
+  },
+
+  // ── SOZLAMALAR ────────────────────────────────────────────────────────────
+  getSettings(clinicId) { return this._c.settings[clinicId] || {}; },
+  updateSetting(clinicId, key, value) {
+    if (!this._c.settings[clinicId]) this._c.settings[clinicId] = {};
+    this._c.settings[clinicId][key] = value;
+    API.put(`/clinics/${clinicId}/settings`, { [key]: value }).catch(console.error);
+  },
+  updateSettings(clinicId, updates) {
+    if (!this._c.settings[clinicId]) this._c.settings[clinicId] = {};
+    Object.assign(this._c.settings[clinicId], updates);
+    API.put(`/clinics/${clinicId}/settings`, updates).catch(console.error);
+  },
+
+  // ── VRACHLAR ─────────────────────────────────────────────────────────────
+  getDoctors(clinicId) { return (this._c.doctors[clinicId] || []).filter(d => !d.deleted); },
+  saveDoctor(clinicId, doctor) {
+    if (!this._c.doctors[clinicId]) this._c.doctors[clinicId] = [];
+    const idx = this._c.doctors[clinicId].findIndex(d => d.id === doctor.id);
+    const isNew = idx < 0;
+    if (isNew) this._c.doctors[clinicId].push(doctor);
+    else this._c.doctors[clinicId][idx] = doctor;
+    if (isNew) API.post(`/clinics/${clinicId}/doctors`, doctor).catch(console.error);
+    else API.put(`/clinics/${clinicId}/doctors/${doctor.id}`, doctor).catch(console.error);
+    return doctor;
+  },
+  deleteDoctor(clinicId, id) {
+    if (!this._c.doctors[clinicId]) return;
+    const idx = this._c.doctors[clinicId].findIndex(d => d.id === id);
+    if (idx >= 0) this._c.doctors[clinicId][idx].deleted = true;
+    API.del(`/clinics/${clinicId}/doctors/${id}`).catch(console.error);
+  },
+
+  // ── HAMSHIRALAR ───────────────────────────────────────────────────────────
+  getNurses(clinicId) { return (this._c.nurses[clinicId] || []).filter(n => !n.deleted); },
+  saveNurse(clinicId, nurse) {
+    if (!this._c.nurses[clinicId]) this._c.nurses[clinicId] = [];
+    const idx = this._c.nurses[clinicId].findIndex(n => n.id === nurse.id);
+    const isNew = idx < 0;
+    if (isNew) this._c.nurses[clinicId].push(nurse);
+    else this._c.nurses[clinicId][idx] = nurse;
+    if (isNew) API.post(`/clinics/${clinicId}/nurses`, nurse).catch(console.error);
+    else API.put(`/clinics/${clinicId}/nurses/${nurse.id}`, nurse).catch(console.error);
+    return nurse;
+  },
+  deleteNurse(clinicId, id) {
+    if (!this._c.nurses[clinicId]) return;
+    const idx = this._c.nurses[clinicId].findIndex(n => n.id === id);
+    if (idx >= 0) this._c.nurses[clinicId][idx].deleted = true;
+    API.del(`/clinics/${clinicId}/nurses/${id}`).catch(console.error);
+  },
+
+  // ── TO'LOV TURLARI ────────────────────────────────────────────────────────
+  getPaymentTypes(clinicId) {
+    return this._c.paymentTypes[clinicId] || [
+      { id: 'naqd',          name: 'Naqd pul',      icon: '💵', active: true, builtin: true },
+      { id: 'terminal',      name: 'Terminal',       icon: '💳', active: true, builtin: true },
+      { id: 'qr',            name: 'QR-kod',         icon: '📱', active: true, builtin: true },
+      { id: 'inkassa',       name: 'Inkassa',        icon: '🏦', active: true, builtin: true },
+      { id: 'prechesleniya', name: 'Prechesleniya',  icon: '🔄', active: true, builtin: true },
+      { id: 'p2p',           name: 'P2P / Payme',    icon: '📲', active: true, builtin: false },
     ];
+  },
+  savePaymentTypes(clinicId, types) {
+    this._c.paymentTypes[clinicId] = types;
+    API.put(`/clinics/${clinicId}/config/payment_types`, types).catch(console.error);
+  },
 
-    // Hamshiralar
-    const nurses = [
-      { id: 'nurse_1', name: 'Yusupova Niyozjon', baseSalary: 2300000, active: true },
-      { id: 'nurse_2', name: 'R. Farangiz', baseSalary: 1290000, active: true },
-      { id: 'nurse_3', name: 'Xakimova Sevara', baseSalary: 1500000, active: true },
-      { id: 'nurse_4', name: 'Bekchanova Sarvinoz', baseSalary: 2500000, active: true },
+  // ── XARAJAT KATEGORIYALARI ────────────────────────────────────────────────
+  getExpenseCategories(clinicId) {
+    return this._c.expenseCats[clinicId] || [
+      { id: 'arenda',   name: 'Arenda',         active: true },
+      { id: 'kommunal', name: 'Kommunal',        active: true },
+      { id: 'texnik',   name: 'Texnik',          active: true },
+      { id: 'maosh',    name: 'Xodim maoshi',    active: true },
+      { id: 'boshqa',   name: 'Boshqa',          active: true },
     ];
+  },
+  saveExpenseCategories(clinicId, cats) {
+    this._c.expenseCats[clinicId] = cats;
+    API.put(`/clinics/${clinicId}/config/expense_cats`, cats).catch(console.error);
+  },
 
-    // Sozlamalar
-    const settings = {
-      dollarRate: 12700,
-      arenda: 4450000,
-      kommunal: 1290000,
-      shaxruzXarajat: 0,
-      clinicName: clinic.name
-    };
+  // ── QO'SHIMCHA MAYDONLAR ──────────────────────────────────────────────────
+  getCustomFields(clinicId) { return this._c.customFields[clinicId] || []; },
+  saveCustomFields(clinicId, fields) {
+    this._c.customFields[clinicId] = fields;
+    API.put(`/clinics/${clinicId}/config/custom_fields`, fields).catch(console.error);
+  },
 
-    // Saqlash
-    localStorage.setItem('da_users', JSON.stringify([superAdmin, rahbar, reception]));
-    this.saveClinic(clinic);
-    const all_doc = {};
-    all_doc[clinic.id] = doctors;
-    localStorage.setItem('da_doctors', JSON.stringify(all_doc));
-    const all_nur = {};
-    all_nur[clinic.id] = nurses;
-    localStorage.setItem('da_nurses', JSON.stringify(all_nur));
-    this.updateSettings(clinic.id, settings);
-    localStorage.setItem('da_seeded', '1');
+  // ── KUNLIK HISOBOT (async — lazy load per date) ───────────────────────────
+  async getDailyReport(clinicId, date) {
+    const key = `${clinicId}_${date}`;
+    if (this._reportCache.has(key)) return this._reportCache.get(key);
+    try {
+      const report = await API.get(`/clinics/${clinicId}/reports/daily?date=${date}`);
+      if (report) this._reportCache.set(key, report);
+      return report || null;
+    } catch { return null; }
+  },
 
-    console.log('✅ Demo ma\'lumotlar yuklandi');
-  }
+  async saveDailyReport(clinicId, report) {
+    this._reportCache.set(`${clinicId}_${report.date}`, report);
+    await API.put(`/clinics/${clinicId}/reports/daily`, report);
+    return report;
+  },
+
+  deleteDailyReport(clinicId, date) {
+    this._reportCache.delete(`${clinicId}_${date}`);
+    API.del(`/clinics/${clinicId}/reports/daily?date=${date}`).catch(console.error);
+  },
+
+  // ── OYLIK / YILLIK (async) ────────────────────────────────────────────────
+  async getMonthlyReports(clinicId, year, month) {
+    try {
+      return await API.get(`/clinics/${clinicId}/reports/monthly?year=${year}&month=${month}`);
+    } catch { return []; }
+  },
+
+  async getYearlyReports(clinicId, year) {
+    try {
+      return await API.get(`/clinics/${clinicId}/reports/yearly?year=${year}`);
+    } catch { return []; }
+  },
+
+  async getDailyReports(clinicId, limit = 90) {
+    try {
+      return await API.get(`/clinics/${clinicId}/reports?limit=${limit}`);
+    } catch { return []; }
+  },
 };

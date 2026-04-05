@@ -21,13 +21,13 @@ const ReceptionDaily = {
   // Naqt bo'lmagan to'lov turlari (kassadan ayiriladi)
   NON_CASH_IDS: ['terminal', 'qr', 'inkassa', 'prechesleniya', 'p2p'],
 
-  render(params = {}) {
+  async render(params = {}) {
     const session = Auth.requireAuth(['admin', 'receptionist', 'super_admin']);
     if (!session) return;
 
     this.clinicId = session.clinicId;
     this.currentDate = params.date || Utils.getTodayStr();
-    this.report = DB.getDailyReport(this.clinicId, this.currentDate) || this._emptyReport();
+    this.report = (await DB.getDailyReport(this.clinicId, this.currentDate)) || this._emptyReport();
     this.doctors = DB.getDoctors(this.clinicId);
     this.nurses = DB.getNurses(this.clinicId);
     // Faqat naqt bo'lmagan to'lov turlari (naqd pul avtomatik hisoblanadi)
@@ -641,7 +641,7 @@ const ReceptionDaily = {
     this.updateTotals();
   },
 
-  saveReport() {
+  async saveReport() {
     // To'lovlar (naqt bo'lmagan)
     const payments = {};
     this.paymentTypes.forEach(pt => {
@@ -701,7 +701,7 @@ const ReceptionDaily = {
       createdAt: this.report.createdAt || new Date().toISOString()
     };
 
-    DB.saveDailyReport(this.clinicId, report);
+    await DB.saveDailyReport(this.clinicId, report);
     this.report = report;
     Utils.toast('success', '✅ Saqlandi!', `${Utils.formatDate(this.currentDate)}`);
     this.updateTotals();
@@ -732,9 +732,9 @@ const ReceptionDaily = {
 
   // ===================== KUN YOPILDI =====================
 
-  closeDayModal() {
+  async closeDayModal() {
     // Avval saqlab olamiz
-    this.saveReport();
+    await this.saveReport();
 
     const allUsers  = DB.getUsers().filter(u => u.clinicId === this.clinicId);
     const report    = this.report;

@@ -191,9 +191,22 @@ const SuperAdmin = {
 };
 
 // APP START
-(function init() {
-  // Demo ma'lumotlar
-  DB.seedDemo();
+(async function init() {
+  // Token tiklash (sahifa yangilanishida)
+  Auth.restore();
+
+  // Ma'lumotlar bor bo'lsa, cache ni tiklash
+  const session = Auth.getSession();
+  if (session && session.clinicId && API.hasToken()) {
+    try {
+      await DB.loadAll(session.clinicId);
+    } catch (e) {
+      // Token muddati tugagan — login ga yo'naltirish
+      console.warn('Session tiklash xatosi:', e.message);
+      Auth.logout();
+      return;
+    }
+  }
 
   // Loading animatsiyasi
   const loading = document.getElementById('loading-screen');
@@ -201,7 +214,7 @@ const SuperAdmin = {
     setTimeout(() => {
       loading.classList.add('hidden');
       Router.init();
-    }, 800);
+    }, 600);
   } else {
     Router.init();
   }

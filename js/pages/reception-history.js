@@ -3,7 +3,7 @@
  */
 
 const ReceptionHistory = {
-  render(params = {}) {
+  async render(params = {}) {
     const session = Auth.requireAuth(['admin', 'receptionist', 'super_admin']);
     if (!session) return;
 
@@ -12,7 +12,7 @@ const ReceptionHistory = {
     const year = parseInt(params.year) || now.year;
     const month = parseInt(params.month) || now.month;
 
-    const reports = DB.getMonthlyReports(clinicId, year, month)
+    const reports = (await DB.getMonthlyReports(clinicId, year, month))
       .sort((a, b) => b.date.localeCompare(a.date));
 
     const paymentTypes = DB.getPaymentTypes(clinicId).filter(p => p.active);
