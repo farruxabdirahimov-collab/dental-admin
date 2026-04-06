@@ -109,6 +109,29 @@ const AdminSettings = {
         </div>
         <div class="hint" style="margin-top:var(--sp-2)">Bu summalar foyda hisoblanishida avtomatik ayiriladi</div>
       </div>
+      <div class="settings-section">
+        <div class="settings-section-title">🦷 Implant maydoni sozlamalari</div>
+        <div class="form-row form-row-2" style="gap:var(--sp-4)">
+          <div class="form-group">
+            <label class="label">Maydon nomi (kunlik kiritishda ko'rinadigan)</label>
+            <input class="input" id="set-implant-label" value="${s.implantLabel || 'Implant'}" placeholder="Implant" />
+            <div class="hint">Masalan: Rentgen, Protez, Implant — klinikaga mos nom kiriting</div>
+          </div>
+          <div class="form-group">
+            <label class="label">Maydonni ko'rsatish</label>
+            <div style="display:flex;align-items:center;gap:var(--sp-3);margin-top:var(--sp-2)">
+              <div class="toggle-wrap" id="implant-toggle-wrap"
+                onclick="this.querySelector('.toggle').classList.toggle('on');AdminSettings._updateImplantHint()">
+                <div class="toggle ${s.showImplant !== false ? 'on' : ''}" id="implant-show-toggle"></div>
+              </div>
+              <span id="implant-toggle-hint" style="font-size:var(--text-sm);color:var(--text-muted)">
+                ${s.showImplant !== false ? '✅ Kunlik kiritishda ko\'rinadi' : '⛔ Yashirilgan'}
+              </span>
+            </div>
+            <div class="hint" style="margin-top:var(--sp-2)">Yoqilmasa — bu klinikada ko'rsatilmaydi</div>
+          </div>
+        </div>
+      </div>
 
       <div class="form-row" style="justify-content:flex-start;margin-top:var(--sp-6)">
         <button class="btn btn-primary" onclick="AdminSettings.saveGeneral()">
@@ -126,11 +149,19 @@ const AdminSettings = {
     const clinicName     = document.getElementById('set-clinic-name')?.value?.trim();
     const phone          = document.getElementById('set-clinic-phone')?.value?.trim();
     const address        = document.getElementById('set-clinic-address')?.value?.trim();
+    const implantLabel   = document.getElementById('set-implant-label')?.value?.trim() || 'Implant';
+    const showImplant    = document.getElementById('implant-show-toggle')?.classList.contains('on') !== false;
 
-    DB.updateSettings(this.clinicId, { dollarRate, arenda, kommunal, shaxruzXarajat });
+    DB.updateSettings(this.clinicId, { dollarRate, arenda, kommunal, shaxruzXarajat, implantLabel, showImplant });
     const clinic = DB.getClinicById(this.clinicId);
     if (clinic) { clinic.name = clinicName; clinic.phone = phone; clinic.address = address; DB.saveClinic(clinic); }
     Utils.toast('success', 'Sozlamalar saqlandi');
+  },
+
+  _updateImplantHint() {
+    const on = document.getElementById('implant-show-toggle')?.classList.contains('on');
+    const hint = document.getElementById('implant-toggle-hint');
+    if (hint) hint.textContent = on ? '✅ Kunlik kiritishda ko\'rinadi' : '⛔ Yashirilgan';
   },
 
   renderPaymentTypes() {

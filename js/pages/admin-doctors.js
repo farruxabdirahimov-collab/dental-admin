@@ -203,6 +203,63 @@ const AdminDoctors = {
             <div class="toggle ${doc?.active !== false ? 'on' : ''}"></div>
           </div>
         </div>
+
+        <!-- Formula builder -->
+        <div style="border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:var(--sp-4);background:var(--bg-secondary)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--sp-3)">
+            <span style="font-size:16px">📐</span>
+            <div style="font-weight:600;font-size:var(--text-sm)">VU Formula quruvchi</div>
+            <span class="badge badge-neutral" style="font-size:10px">Vrach ulushi hisoblash</span>
+          </div>
+
+          <!-- Preset formulalar -->
+          <div style="margin-bottom:var(--sp-3)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Tayyor formulalar:</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${FormulaEngine.getPresetFormulas().map(p => `
+                <button class="btn btn-ghost btn-sm" style="font-size:11px;border:1px solid var(--border-subtle)"
+                  title="${p.desc.replace(/'/g,"&apos;")}"
+                  onclick="AdminDoctors._setFormula('${p.formula.replace(/'/g,'\\&apos;')}')"> 
+                  ${p.name}
+                </button>`).join('')}
+            </div>
+          </div>
+
+          <!-- O'zgaruvchilar -->
+          <div style="margin-bottom:var(--sp-2)">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">O'zgaruvchilar (bosing → formulaga qo'shiladi):</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${FormulaEngine.getAvailableVars().map(v => `
+                <button class="btn btn-sm" style="font-size:11px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:var(--brand-primary)"
+                  title="${v.desc.replace(/'/g,"&apos;")}"
+                  onclick="AdminDoctors._insertToken(' ${v.key} ')">${v.label}</button>`).join('')}
+            </div>
+          </div>
+
+          <!-- Amallar -->
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:var(--sp-3);flex-wrap:wrap">
+            <div style="font-size:10px;color:var(--text-muted);margin-right:2px">Amallar:</div>
+            ${['+', '-', '*', '/', '(', ')', '100', '0.5', '0.3'].map(op => `
+              <button class="btn btn-ghost btn-sm" style="font-family:var(--font-mono);font-size:13px;padding:3px 9px;border:1px solid var(--border-subtle)"
+                onclick="AdminDoctors._insertToken('${op}')">${op}</button>`).join('')}
+          </div>
+
+          <!-- Formula input + preview -->
+          <div class="form-group" style="margin-bottom:0">
+            <label class="label" style="display:flex;justify-content:space-between">
+              <span>Formula (tahrirlash mumkin)</span>
+              <button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="AdminDoctors._clearFormula()">🗑️ Tozalash</button>
+            </label>
+            <textarea class="input" id="doc-modal-formula" rows="2"
+              style="font-family:var(--font-mono);font-size:12px;resize:vertical"
+              placeholder="(tushum - texnik) * percent / 100 + implant_count * implant_value"
+              oninput="AdminDoctors._previewFormula()">${doc?.formula || '(tushum - texnik) * percent / 100 + implant_count * implant_value'}</textarea>
+            <div id="formula-preview" style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px">
+              <span style="color:var(--text-muted)">Misol (800k tushum, 100k texnik):</span>
+              <span id="formula-preview-val" style="font-weight:700">Hisoblanmoqda...</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="modal-footer">
@@ -212,6 +269,9 @@ const AdminDoctors = {
         </button>
       </div>
     `, { size: 'lg' });
+
+    // Preview boshlash
+    setTimeout(() => AdminDoctors._previewFormula(), 100);
   },
 
   _updateImplantMode() {
@@ -222,6 +282,39 @@ const AdminDoctors = {
     if (prefix) prefix.textContent = mode === 'percent' ? '%' : 'so\'m';
   },
 
+  _insertToken(text) {
+    const ta = document.getElementById('doc-modal-formula');
+    if (!ta) return;
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + text + ta.value.substring(e);
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+    ta.focus();
+    this._previewFormula();
+  },
+
+  _setFormula(formula) {
+    const ta = document.getElementById('doc-modal-formula');
+    if (ta) { ta.value = formula; this._previewFormula(); }
+  },
+
+  _clearFormula() {
+    const ta = document.getElementById('doc-modal-formula');
+    if (ta) { ta.value = ''; ta.focus(); this._previewFormula(); }
+  },
+
+  _previewFormula() {
+    const formula  = document.getElementById('doc-modal-formula')?.value || '';
+    const percent  = Utils.num(document.getElementById('doc-modal-percent')?.value) || 35;
+    const impVal   = Utils.num(document.getElementById('doc-modal-implant-val')?.value) || 300000;
+    const result   = FormulaEngine.testFormula(formula, { percent, implant_value: impVal });
+    const el       = document.getElementById('formula-preview-val');
+    if (el) {
+      el.innerHTML = result.ok
+        ? `<span style="color:var(--brand-success)">✅ ${Utils.formatMoneyFull(result.result)}</span>`
+        : `<span style="color:var(--brand-danger)">❌ Formula xato!</span>`;
+    }
+  },
+
   saveDoctor(clinicId, existingId) {
     const name    = document.getElementById('doc-modal-name')?.value?.trim();
     const percent = Utils.num(document.getElementById('doc-modal-percent')?.value) || 35;
@@ -229,13 +322,15 @@ const AdminDoctors = {
     const impVal  = Utils.num(document.getElementById('doc-modal-implant-val')?.value) || 300000;
     const color   = document.getElementById('doc-modal-color')?.value || 'var(--grad-brand)';
     const active  = document.querySelector('#modal-overlay .toggle')?.classList.contains('on') ?? true;
+    const formula = document.getElementById('doc-modal-formula')?.value?.trim()
+                    || '(tushum - texnik) * percent / 100 + implant_count * implant_value';
 
     if (!name) { Utils.toast('error', 'Vrach ismini kiriting'); return; }
 
     if (existingId) {
       const doc = DB.getDoctors(clinicId).find(d => d.id === existingId);
       if (doc) {
-        Object.assign(doc, { name, percent, implantMode: mode, implantValue: impVal, color, active });
+        Object.assign(doc, { name, percent, implantMode: mode, implantValue: impVal, color, active, formula });
         DB.saveDoctor(clinicId, doc);
       }
     } else {
@@ -244,6 +339,7 @@ const AdminDoctors = {
         name, percent,
         implantMode: mode,
         implantValue: impVal,
+        formula,
         color, active,
         createdAt: new Date().toISOString()
       };

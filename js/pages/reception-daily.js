@@ -17,6 +17,7 @@ const ReceptionDaily = {
   paymentTypes: [],       // faqat naqt bo'lmagan turlar
   expenseCategories: [],
   settings: {},
+  customFields: [],       // target=doctor bo'lgan qo'shimcha maydonlar
 
   // Naqt bo'lmagan to'lov turlari (kassadan ayiriladi)
   NON_CASH_IDS: ['terminal', 'qr', 'inkassa', 'prechesleniya', 'p2p'],
@@ -34,6 +35,8 @@ const ReceptionDaily = {
     this.paymentTypes = DB.getPaymentTypes(this.clinicId).filter(p => p.active && p.id !== 'naqd');
     this.expenseCategories = DB.getExpenseCategories(this.clinicId);
     this.settings = DB.getSettings(this.clinicId);
+    // Vrach satrlari uchun qo'shimcha maydonlar
+    this.customFields = DB.getCustomFields(this.clinicId).filter(f => f.target === 'doctor');
 
     const content = `
       ${Components.renderPageHeader(
@@ -229,8 +232,13 @@ const ReceptionDaily = {
   },
 
   renderDoctorRows() {
+    const implantLabel = this.settings.implantLabel || 'Implant';
+    const showImplant  = this.settings.showImplant !== false;
+
     return this.doctors.map(doc => {
       const entry = (this.report.doctors || {})[doc.id] || {};
+      const cfVals = entry.customFields || {};
+
       return `
         <div class="doctor-daily-card" id="doc-card-${doc.id}">
           <div class="doctor-daily-head" onclick="ReceptionDaily.toggleDoctor('${doc.id}')">
@@ -266,13 +274,14 @@ const ReceptionDaily = {
                     oninput="ReceptionDaily.updateTotals()" />
                 </div>
               </div>
+              ${showImplant ? `
               <div class="form-group">
-                <label class="label">🦷 Implant soni</label>
+                <label class="label">🦷 ${implantLabel} soni</label>
                 <input class="input" type="number" min="0"
                   id="doc-implant-count-${doc.id}"
                   value="${entry.implantCount || ''}" placeholder="0"
                   oninput="ReceptionDaily.updateTotals()" />
-              </div>
+              </div>` : ''}
               <div class="form-group">
                 <label class="label">💸 Avans oldi</label>
                 <div class="input-prefix-wrap">
@@ -283,6 +292,27 @@ const ReceptionDaily = {
                     oninput="ReceptionDaily.updateTotals()" />
                 </div>
               </div>
+              ${this.customFields.map(cf => `
+              <div class="form-group">
+                <label class="label" style="color:var(--brand-primary)">
+                  ${cf.type === 'currency' ? '💳' : cf.type === 'number' ? '🔢' : '📝'} ${cf.name}
+                </label>
+                ${cf.type === 'currency' ? `
+                  <div class="input-prefix-wrap">
+                    <span class="input-prefix" style="font-size:10px">so'm</span>
+                    <input class="input" type="number" min="0" step="1000"
+                      id="doc-cf-${cf.id}-${doc.id}"
+                      value="${cfVals[cf.id] || ''}" placeholder="0"
+                      oninput="ReceptionDaily.updateTotals()" />
+                  </div>` : cf.type === 'number' ? `
+                  <input class="input" type="number" min="0"
+                    id="doc-cf-${cf.id}-${doc.id}"
+                    value="${cfVals[cf.id] || ''}" placeholder="0"
+                    oninput="ReceptionDaily.updateTotals()" />` : `
+                  <input class="input" type="text"
+                    id="doc-cf-${cf.id}-${doc.id}"
+                    value="${cfVals[cf.id] || ''}" placeholder="..." />`}
+              </div>`).join('')}
             </div>
           </div>
         </div>
@@ -656,8 +686,17 @@ const ReceptionDaily = {
       const texnik = Utils.num(document.getElementById(`doc-texnik-${doc.id}`)?.value);
       const implantCount = Utils.num(document.getElementById(`doc-implant-count-${doc.id}`)?.value);
       const avans = Utils.num(document.getElementById(`doc-avans-${doc.id}`)?.value);
-      if (tushum || texnik || implantCount || avans) {
-        doctors[doc.id] = { tushum, texnik, implantCount, avans };
+      // Qo'shimcha maydonlar
+      const customFields = {};
+      this.customFields.forEach(cf => {
+        const el = document.getElementById(`doc-cf-${cf.id}-${doc.id}`);
+        if (el) {
+          const val = cf.type === 'text' ? el.value : Utils.num(el.value);
+          if (val) customFields[cf.id] = val;
+        }
+      });
+      if (tushum || texnik || implantCount || avans || Object.keys(customFields).length) {
+        doctors[doc.id] = { tushum, texnik, implantCount, avans, customFields };
       }
     });
 
