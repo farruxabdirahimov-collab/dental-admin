@@ -32,8 +32,11 @@ async function initDb() {
 
   // ── Migratsiyalar (idempotent) ─────────────────────────────────────────────
   await pool.query(`
-    ALTER TABLE doctors ADD COLUMN IF NOT EXISTS monthly_goal BIGINT DEFAULT 0;
-    ALTER TABLE users   ADD COLUMN IF NOT EXISTS telegram_id  TEXT;
+    ALTER TABLE doctors ADD COLUMN IF NOT EXISTS monthly_goal    BIGINT DEFAULT 0;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS telegram_id     TEXT;
+    ALTER TABLE clinics ADD COLUMN IF NOT EXISTS active          BOOLEAN DEFAULT TRUE;
+    ALTER TABLE clinics ADD COLUMN IF NOT EXISTS expires_at      TIMESTAMP;
+    ALTER TABLE clinics ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP;
   `);
 
   // Demo data — faqat klinikalar bo'sh bo'lsa

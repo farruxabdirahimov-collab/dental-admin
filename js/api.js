@@ -36,8 +36,9 @@ const API = {
   },
 
   // ── Qisqa metodlar ───────────────────────────────────────────────────────
-  get:  (path)       => API.req('GET',    path),
-  post: (path, body) => API.req('POST',   path, body),
-  put:  (path, body) => API.req('PUT',    path, body),
-  del:  (path)       => API.req('DELETE', path),
+  get:   (path)       => API.req('GET',    path),
+  post:  (path, body) => API.req('POST',   path, body),
+  put:   (path, body) => API.req('PUT',    path, body),
+  patch: (path, body) => API.req('PATCH',  path, body),
+  del:   (path)       => API.req('DELETE', path),
 };

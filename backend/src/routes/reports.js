@@ -49,9 +49,16 @@ router.put('/:clinicId/reports/daily', ...auth, async (req, res) => {
         SET data=$3, closed=$4, closed_at=$5, updated_at=NOW()
     `, [req.params.clinicId, date, JSON.stringify(data), _closed||false, _closedAt||null]);
 
+    // Klinikaning oxirgi faollik vaqtini yangilash
+    await pool.query(
+      'UPDATE clinics SET last_activity_at=NOW() WHERE id=$1',
+      [req.params.clinicId]
+    );
+
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 // ── GET /api/clinics/:id/reports/monthly?year=&month= ────────────────────────
 router.get('/:clinicId/reports/monthly', ...auth, async (req, res) => {

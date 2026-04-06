@@ -8,7 +8,46 @@ const AdminDashboard = {
     if (!session) return;
 
     const clinicId = session.clinicId;
+
+    // ── Abonement ogohlantirish banneri ─────────────────────────────────────
+    let subscriptionBanner = '';
+    try {
+      const clinicInfo = await API.get(`/clinics/${clinicId}`);
+      if (clinicInfo.expiresAt) {
+        const daysLeft = Math.ceil((new Date(clinicInfo.expiresAt) - new Date()) / 86400000);
+        if (daysLeft <= 0) {
+          subscriptionBanner = `
+            <div style="background:linear-gradient(135deg,#ef444420,#ef444408);border:1.5px solid #ef444460;border-radius:var(--r-md);padding:var(--sp-4);display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+              <div style="font-size:28px">🔴</div>
+              <div>
+                <div style="font-weight:700;color:#ef4444;font-size:var(--text-md)">Abonement muddati tugagan!</div>
+                <div style="color:var(--text-secondary);font-size:var(--text-sm)">Iltimos, tizim administratori bilan bog'laning.</div>
+              </div>
+            </div>`;
+        } else if (daysLeft <= 3) {
+          subscriptionBanner = `
+            <div style="background:linear-gradient(135deg,#ef444418,#ef444405);border:1.5px solid #ef444450;border-radius:var(--r-md);padding:var(--sp-4);display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+              <div style="font-size:28px">🚨</div>
+              <div>
+                <div style="font-weight:700;color:#ef4444;font-size:var(--text-md)">Abonement ${daysLeft} kunda tugaydi!</div>
+                <div style="color:var(--text-secondary);font-size:var(--text-sm)">Uzilishni oldini olish uchun tizim mudiriga murojaat qiling.</div>
+              </div>
+            </div>`;
+        } else if (daysLeft <= 7) {
+          subscriptionBanner = `
+            <div style="background:linear-gradient(135deg,#f59e0b18,#f59e0b05);border:1.5px solid #f59e0b50;border-radius:var(--r-md);padding:var(--sp-4);display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+              <div style="font-size:28px">⚠️</div>
+              <div>
+                <div style="font-weight:700;color:#f59e0b;font-size:var(--text-md)">Abonement ${daysLeft} kun ichida tugaydi</div>
+                <div style="color:var(--text-secondary);font-size:var(--text-sm)">Vaqtida uzaytiring — tizim administrator: murojaat qiling.</div>
+              </div>
+            </div>`;
+        }
+      }
+    } catch (e) { /* ogohlantirish yuklanmasa o'tkazib yuborish */ }
+
     const { year, month } = Utils.getCurrentMonth();
+
 
     // Joriy oy + oxirgi 6 oy parallel yuklash
     const months = [];
@@ -84,7 +123,10 @@ const AdminDashboard = {
       )}
       <div class="page-body dashboard-grid">
 
+        ${subscriptionBanner}
+
         <!-- Top Stats -->
+
         <div class="stats-grid stats-grid-4">
           <div class="stat-card" style="--stat-color: var(--grad-brand)">
             <div class="stat-label">Oylik jami tushum</div>

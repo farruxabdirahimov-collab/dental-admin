@@ -17,6 +17,7 @@ const reportRoutes    = require('./src/routes/reports');
 const settingsRoutes  = require('./src/routes/settings');
 const userRoutes      = require('./src/routes/users');
 const configRoutes    = require('./src/routes/config');
+const superRoutes     = require('./src/routes/super');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,7 @@ app.use('/api/clinics', reportRoutes);
 app.use('/api/clinics', settingsRoutes);
 app.use('/api/clinics', userRoutes);
 app.use('/api/clinics', configRoutes);
+app.use('/api/super',   superRoutes);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

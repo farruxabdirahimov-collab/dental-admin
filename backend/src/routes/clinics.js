@@ -14,12 +14,14 @@ function nanoid(prefix = '') {
 
 function mapClinic(row) {
   return {
-    id:        row.id,
-    name:      row.name,
-    address:   row.address,
-    phone:     row.phone,
-    color:     row.color,
-    createdAt: row.created_at,
+    id:         row.id,
+    name:       row.name,
+    address:    row.address,
+    phone:      row.phone,
+    color:      row.color,
+    active:     row.active,
+    expiresAt:  row.expires_at,
+    createdAt:  row.created_at,
   };
 }
 
