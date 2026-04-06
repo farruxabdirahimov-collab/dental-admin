@@ -477,7 +477,7 @@ const AdminMonthly = {
     reports.forEach(r => {
       (r.expenses || []).forEach(exp => {
         const amt = Number(exp.amount) || 0;
-        const catId = exp.category || '__other__';
+        const catId = exp.categoryId || exp.category || '__other__';
         const target = catMap[catId] || catMap['__other__'];
         target.total += amt;
         target.count += 1;
@@ -593,7 +593,7 @@ const AdminMonthly = {
               <tbody>
                 ${reports.flatMap(r =>
                   (r.expenses || []).map(exp => {
-                    const catName = catMap[exp.category]?.name || 'Boshqa';
+                    const catName = catMap[exp.categoryId || exp.category]?.name || 'Boshqa';
                     return `<tr>
                       <td style="white-space:nowrap">${Utils.formatDateShort(r.date)}</td>
                       <td><span class="badge badge-neutral">${catName}</span></td>
