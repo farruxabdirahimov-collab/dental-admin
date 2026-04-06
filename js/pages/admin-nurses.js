@@ -6,7 +6,7 @@
  */
 
 const AdminNurses = {
-  render() {
+  async render() {
     const session = Auth.requireAuth(['admin', 'super_admin']);
     if (!session) return;
     const clinicId = session.clinicId;
@@ -15,7 +15,7 @@ const AdminNurses = {
 
     // Joriy oy uchun har bir hamshira avansini hisoblash
     const nurseStats = {};
-    const reports = DB.getMonthlyReports(clinicId, now.year, now.month);
+    const reports = await DB.getMonthlyReports(clinicId, now.year, now.month);
     nurses.forEach(n => {
       let totalAvans = 0;
       reports.forEach(r => {
@@ -210,7 +210,7 @@ const AdminNurses = {
     this._openModal(nurse, clinicId);
   },
 
-  saveNurse(clinicId, existingId) {
+  async saveNurse(clinicId, existingId) {
     const name   = document.getElementById('nurse-modal-name')?.value?.trim();
     const salary = Utils.num(document.getElementById('nurse-modal-salary')?.value);
     const phone  = document.getElementById('nurse-modal-phone')?.value?.trim();
@@ -218,31 +218,43 @@ const AdminNurses = {
 
     if (!name) { Utils.toast('error', 'Hamshira ismini kiriting'); return; }
 
-    if (existingId) {
-      const n = DB.getNurses(clinicId).find(x => x.id === existingId);
-      if (n) {
-        Object.assign(n, { name, baseSalary: salary, phone, active });
-        DB.saveNurse(clinicId, n);
+    const btn = document.querySelector('.modal-footer .btn-primary');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Saqlanmoqda...'; }
+
+    try {
+      if (existingId) {
+        await API.put(`/clinics/${clinicId}/nurses/${existingId}`, { name, baseSalary: salary, phone, active });
+        // Cache yangilash
+        const nurses = this._c ? this._c.nurses[clinicId] : DB._c.nurses[clinicId];
+        const n = DB._c.nurses[clinicId]?.find(x => x.id === existingId);
+        if (n) Object.assign(n, { name, baseSalary: salary, phone, active });
+      } else {
+        const newNurse = { id: DB.generateId('nurse_'), name, baseSalary: salary, phone, active, createdAt: new Date().toISOString() };
+        const saved = await API.post(`/clinics/${clinicId}/nurses`, newNurse);
+        if (!DB._c.nurses[clinicId]) DB._c.nurses[clinicId] = [];
+        DB._c.nurses[clinicId].push(saved || newNurse);
       }
-    } else {
-      const newNurse = { id: DB.generateId('nurse_'), name, baseSalary: salary, phone, active, createdAt: new Date().toISOString() };
-      DB.saveNurse(clinicId, newNurse);
+      Utils.closeModal();
+      Utils.toast('success', existingId ? 'Yangilandi' : 'Hamshira qo\'shildi');
+      await this.render();
+    } catch (e) {
+      Utils.toast('error', 'Xato', e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Saqlash'; }
     }
-    Utils.closeModal();
-    Utils.toast('success', existingId ? 'Yangilandi' : 'Hamshira qo\'shildi');
-    this.render();
   },
 
-  toggleActive(clinicId, nurseId) {
+  async toggleActive(clinicId, nurseId) {
     const n = DB.getNurses(clinicId).find(x => x.id === nurseId);
-    if (n) {
-      n.active = n.active === false ? true : false;
-      DB.saveNurse(clinicId, n);
-      this.render();
-    }
+    if (!n) return;
+    const newActive = n.active === false ? true : false;
+    try {
+      await API.put(`/clinics/${clinicId}/nurses/${nurseId}`, { ...n, active: newActive });
+      n.active = newActive;
+      await this.render();
+    } catch (e) { Utils.toast('error', 'Xato', e.message); }
   },
 
-  viewHistory(clinicId, nurseId) {
+  async viewHistory(clinicId, nurseId) {
     const nurse = DB.getNurses(clinicId).find(n => n.id === nurseId);
     if (!nurse) return;
 
@@ -252,7 +264,7 @@ const AdminNurses = {
     for (let i = 0; i < 3; i++) {
       let m = now.month - i, y = now.year;
       if (m <= 0) { m += 12; y -= 1; }
-      const reports = DB.getMonthlyReports(clinicId, y, m);
+      const reports = await DB.getMonthlyReports(clinicId, y, m);
       let totalAvans = 0;
       const days = [];
       reports.forEach(r => {
