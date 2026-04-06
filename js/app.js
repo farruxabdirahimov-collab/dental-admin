@@ -376,57 +376,6 @@ const SuperAdmin = {
   }
 };
 
-    const session = Auth.requireAuth(['super_admin']);
-    if (!session) return;
-
-    const clinics = DB.getClinics();
-    const content = `
-      ${Components.renderPageHeader(
-        '🏥 Filiallar',
-        `Jami ${clinics.length} ta filial`,
-        `<button class="btn btn-primary" onclick="SuperAdmin.openAddClinic()">
-          ${Utils.icon('plus', 14)} Yangi filial
-        </button>`
-      )}
-      <div class="page-body">
-        <div class="clinic-cards-grid">
-          ${clinics.map(c => `
-            <div class="clinic-card" onclick="SuperAdmin.enterClinic('${c.id}')">
-              <div class="clinic-card-header">
-                <div class="clinic-card-icon" style="background:${c.color || 'var(--grad-brand)'}">🦷</div>
-                <span class="badge badge-success">Faol</span>
-              </div>
-              <div class="clinic-card-name">${c.name}</div>
-              <div class="clinic-card-address">${c.address || '—'}</div>
-              <div class="clinic-card-stats">
-                <div class="clinic-stat">
-                  <div class="clinic-stat-val">${DB.getDoctors(c.id).length}</div>
-                  <div class="clinic-stat-label">Vrachlar</div>
-                </div>
-                <div class="clinic-stat">
-                  <div class="clinic-stat-val">${DB.getNurses(c.id).length}</div>
-                  <div class="clinic-stat-label">Hamshira</div>
-                </div>
-                <div class="clinic-stat">
-                  <div class="clinic-stat-val">${DB.getDailyReports(c.id).length}</div>
-                  <div class="clinic-stat-label">Kun</div>
-                </div>
-              </div>
-            </div>
-          `).join('') || `
-            <div class="empty-state" style="grid-column:1/-1">
-              <div class="empty-icon">🏥</div>
-              <div class="empty-title">Hech qanday filial yo'q</div>
-              <button class="btn btn-primary" onclick="SuperAdmin.openAddClinic()">Birinchi filial yaratish</button>
-            </div>
-          `}
-        </div>
-      </div>
-    `;
-    document.getElementById('app').innerHTML = Components.renderLayout(session, '/super/clinics', content);
-
-
-
 // APP START
 (async function init() {
   // Token tiklash (sahifa yangilanishida)
