@@ -16,9 +16,9 @@ const AdminSettings = {
       <div class="page-body">
         <div class="settings-grid">
           <div class="settings-nav">
-            ${['general', 'payment_types', 'expense_cats', 'custom_fields', 'users'].map(tab => `
+            ${['general', 'payment_types', 'expense_cats', 'custom_fields', 'formula_builder', 'users'].map(tab => `
               <div class="settings-nav-item ${this.activeTab === tab ? 'active' : ''}" onclick="AdminSettings.switchTab('${tab}')">
-                ${{ general: '🏥 Umumiy', payment_types: '💳 To\'lov turlari', expense_cats: '📂 Xarajat turlari', custom_fields: '🔧 Qo\'shimcha maydonlar', users: '👤 Foydalanuvchilar' }[tab]}
+                ${{ general: '🏥 Umumiy', payment_types: '💳 To\'lov turlari', expense_cats: '📂 Xarajat turlari', custom_fields: '🔧 Qo\'shimcha maydonlar', formula_builder: '💡 Maosh formulasi', users: '👤 Foydalanuvchilar' }[tab]}
               </div>
             `).join('')}
           </div>
@@ -35,18 +35,19 @@ const AdminSettings = {
   switchTab(tab) {
     this.activeTab = tab;
     document.querySelectorAll('.settings-nav-item').forEach((el, i) => {
-      el.classList.toggle('active', ['general', 'payment_types', 'expense_cats', 'custom_fields', 'users'][i] === tab);
+      el.classList.toggle('active', ['general', 'payment_types', 'expense_cats', 'custom_fields', 'formula_builder', 'users'][i] === tab);
     });
     document.getElementById('settings-panel').innerHTML = this.renderPanel();
   },
 
   renderPanel() {
     switch (this.activeTab) {
-      case 'general':       return this.renderGeneral();
-      case 'payment_types': return this.renderPaymentTypes();
-      case 'expense_cats':  return this.renderExpenseCats();
-      case 'custom_fields': return this.renderCustomFields();
-      case 'users':         return this.renderUsers();
+      case 'general':          return this.renderGeneral();
+      case 'payment_types':    return this.renderPaymentTypes();
+      case 'expense_cats':     return this.renderExpenseCats();
+      case 'custom_fields':    return this.renderCustomFields();
+      case 'formula_builder':  return this.renderFormulaBuilder();
+      case 'users':            return this.renderUsers();
       default: return '';
     }
   },
@@ -699,5 +700,355 @@ const AdminSettings = {
   // Legacy compatibility
   editUser(userId) { this.openEditUser(userId); },
   addUser()        { this.openAddUser(); },
-  deleteUser(id, name) { this.confirmDeleteUser(id, name); }
+  deleteUser(id, name) { this.confirmDeleteUser(id, name); },
+
+  // ================================================================
+  // 💡 MAOSH FORMULASI BUILDER
+  // ================================================================
+
+  renderFormulaBuilder() {
+    const steps = FormulaEngine.getSteps(this.clinicId);
+    const baseVars = FormulaEngine.getAvailableVars();
+    const stepIds  = steps.map(s => s.id);
+    // Barcha mavjud o'zgaruvchilar = asosiy + oldingi qadamlar
+    const allVarHints = [
+      ...baseVars.map(v => `<code>${v.key}</code> — ${v.label}`),
+      ...steps.map(s => `<code>${s.id}</code> — ${s.label} (avvalgi qadam)`)
+    ].join('<br>');
+
+    const typeLabels = {
+      sum:     '📊 Jami',
+      formula: '🧮 Formula',
+      result:  '💚 Natija'
+    };
+
+    return `
+      <div class="settings-panel-title">💡 Maosh formulasi qadamlari</div>
+      <p style="color:var(--text-muted);font-size:var(--text-sm);margin-bottom:var(--sp-4)">
+        Har bir qadam — bir narsani hisoblaydi. Natija keyingi qadamlarda o'zgaruvchi sifatida ishlatiladi.
+        Oxirgi <strong>Natija</strong> tipidagi qadam — vrachga beriladigan summa hisoblanadi.
+      </p>
+
+      <!-- QADAMLAR RO'YXATI -->
+      <div id="formula-steps-list" style="display:flex;flex-direction:column;gap:var(--sp-3);margin-bottom:var(--sp-5)">
+        ${steps.length ? steps.map((step, i) => this._renderFormulaStepRow(step, i, steps)).join('') : `
+          <div style="text-align:center;padding:var(--sp-6);color:var(--text-muted);border:2px dashed var(--border-subtle);border-radius:var(--r-lg)">
+            Hech qanday qadam yo'q — qo'shish uchun pastdagi tugmani bosing
+          </div>`}
+      </div>
+
+      <!-- YANGI QADAM QO'SHISH -->
+      <div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:var(--sp-5);margin-bottom:var(--sp-5)">
+        <div style="font-size:var(--text-sm);font-weight:700;margin-bottom:var(--sp-4);color:var(--brand-primary)">➕ Yangi qadam qo'shish</div>
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Emoji</label>
+            <input class="input" id="new-step-emoji" value="📊" style="text-align:center;font-size:18px" maxlength="2" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">ID (kodi) *</label>
+            <input class="input" id="new-step-id" placeholder="VU, JTS, JIS..." style="font-family:var(--font-mono);font-weight:700" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Nom *</label>
+            <input class="input" id="new-step-label" placeholder="Vrach Ulushi" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 140px;gap:var(--sp-3);margin-bottom:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Formula iborasi *</label>
+            <input class="input" id="new-step-expr" placeholder="(tushum - JIS) * percent / 100 + JIS"
+              style="font-family:var(--font-mono)" oninput="AdminSettings._previewStep()" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Turi</label>
+            <select class="select" id="new-step-type">
+              <option value="formula">🧮 Formula</option>
+              <option value="sum">📊 Jami</option>
+              <option value="result">💚 Natija</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- PREVIEW -->
+        <div id="step-preview" style="margin-bottom:var(--sp-3);padding:var(--sp-3);background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:var(--r-md);font-size:var(--text-sm);display:none">
+        </div>
+
+        <!-- MAVJUD O'ZGARUVCHILAR -->
+        <div style="margin-bottom:var(--sp-4);padding:var(--sp-3);background:var(--bg-secondary);border-radius:var(--r-md);font-size:11px;color:var(--text-muted);line-height:1.8">
+          <div style="font-weight:700;margin-bottom:4px;color:var(--text-secondary)">📋 Ishlatish mumkin bo'lgan o'zgaruvchilar:</div>
+          ${baseVars.map(v => `<code style="background:rgba(99,102,241,0.1);padding:1px 5px;border-radius:3px;color:var(--brand-primary)">${v.key}</code> ${v.label}`).join(' &nbsp;·&nbsp; ')}
+          ${steps.length ? '<br>' + steps.map(s => `<code style="background:rgba(16,185,129,0.1);padding:1px 5px;border-radius:3px;color:var(--brand-success)">${s.id}</code> (${s.label})`).join(' &nbsp;·&nbsp; ') : ''}
+        </div>
+
+        <button class="btn btn-secondary" onclick="AdminSettings.addFormulaStep()">
+          ${Utils.icon('plus', 14)} Qadam qo'shish
+        </button>
+      </div>
+
+      <!-- AMALIY NAMUNA -->
+      <div style="background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:var(--r-lg);padding:var(--sp-4);margin-bottom:var(--sp-5)">
+        <div style="font-size:var(--text-sm);font-weight:700;color:var(--brand-primary);margin-bottom:var(--sp-3)">🔬 Jonli test (namuna qiymatlar bilan)</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);margin-bottom:var(--sp-4)">
+          <div class="form-group" style="margin:0">
+            <label class="label" style="font-size:11px">Tushum</label>
+            <input class="input" type="number" id="test-tushum" value="2400000" oninput="AdminSettings._runTest()" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label" style="font-size:11px">Texnik</label>
+            <input class="input" type="number" id="test-texnik" value="0" oninput="AdminSettings._runTest()" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label" style="font-size:11px">Implant soni</label>
+            <input class="input" type="number" id="test-implantCount" value="0" oninput="AdminSettings._runTest()" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label" style="font-size:11px">Implant qiymati</label>
+            <input class="input" type="number" id="test-implantValue" value="300000" oninput="AdminSettings._runTest()" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label" style="font-size:11px">Foiz (%)</label>
+            <input class="input" type="number" id="test-percent" value="35" oninput="AdminSettings._runTest()" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label" style="font-size:11px">Avans</label>
+            <input class="input" type="number" id="test-avans" value="1100000" oninput="AdminSettings._runTest()" />
+          </div>
+        </div>
+
+        <!-- Test natijasi jadvali -->
+        <div id="test-result-table"></div>
+      </div>
+
+      <div style="display:flex;gap:var(--sp-3)">
+        <button class="btn btn-primary" onclick="AdminSettings.saveFormulaSteps()">
+          ${Utils.icon('save', 14)} Saqlash
+        </button>
+        <button class="btn btn-secondary" onclick="AdminSettings._resetFormulaToDefault()"
+          style="color:var(--brand-warning);border-color:rgba(245,158,11,0.4)">
+          🔄 Standartga qaytarish
+        </button>
+      </div>
+    `;
+  },
+
+  _renderFormulaStepRow(step, i, allSteps) {
+    const typeColors = { sum: '#22d3ee', formula: 'var(--brand-primary)', result: 'var(--brand-success)' };
+    const typeLabels = { sum: '📊 Jami', formula: '🧮 Formula', result: '💚 Natija' };
+    const color = typeColors[step.type] || 'var(--text-muted)';
+    return `
+      <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-lg);border-left:3px solid ${color}">
+        <div style="font-size:22px;width:32px;text-align:center;flex-shrink:0">${step.emoji || '📌'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:2px">
+            <code style="font-size:var(--text-sm);font-weight:800;color:${color};background:${color}18;padding:2px 8px;border-radius:4px">${step.id}</code>
+            <span style="font-size:var(--text-sm);font-weight:600">${step.label}</span>
+            <span style="font-size:11px;padding:1px 8px;border-radius:12px;background:${color}18;color:${color}">${typeLabels[step.type] || step.type}</span>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            = ${step.expr}
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--sp-1);flex-shrink:0">
+          ${i > 0 ? `<button class="btn btn-ghost btn-sm btn-icon" onclick="AdminSettings._moveStep(${i},-1)" title="Yuqoriga">↑</button>` : '<div style="width:32px"></div>'}
+          ${i < allSteps.length-1 ? `<button class="btn btn-ghost btn-sm btn-icon" onclick="AdminSettings._moveStep(${i},1)" title="Pastga">↓</button>` : '<div style="width:32px"></div>'}
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="AdminSettings._editStep(${i})" title="Tahrirlash">${Utils.icon('edit', 14)}</button>
+          <button class="btn btn-danger btn-sm btn-icon" onclick="AdminSettings._deleteStep(${i})" title="O'chirish">${Utils.icon('trash', 14)}</button>
+        </div>
+      </div>
+    `;
+  },
+
+  addFormulaStep() {
+    const id    = document.getElementById('new-step-id')?.value?.trim().toUpperCase().replace(/\s/g,'');
+    const label = document.getElementById('new-step-label')?.value?.trim();
+    const expr  = document.getElementById('new-step-expr')?.value?.trim();
+    const type  = document.getElementById('new-step-type')?.value || 'formula';
+    const emoji = document.getElementById('new-step-emoji')?.value?.trim() || '📌';
+
+    if (!id)    { Utils.toast('error', 'ID (kodi) kiriting'); return; }
+    if (!label) { Utils.toast('error', 'Nom kiriting'); return; }
+    if (!expr)  { Utils.toast('error', 'Formula iborasi kiriting'); return; }
+
+    // Xavflilik tekshiruvi
+    const test = FormulaEngine.testFormula(expr, {
+      tushum: 1000000, texnik: 0, implantCount: 0, implantValue: 300000, percent: 35, avans: 0
+    });
+    if (!test.ok) { Utils.toast('error', 'Formula xato', test.error); return; }
+
+    const steps = FormulaEngine.getSteps(this.clinicId).slice();
+    // Agar shu ID mavjud bo'lsa, yangilash
+    const existIdx = steps.findIndex(s => s.id === id);
+    const newStep  = { id, label, expr, type, emoji };
+    if (existIdx >= 0) steps[existIdx] = newStep;
+    else steps.push(newStep);
+
+    FormulaEngine.saveSteps(this.clinicId, steps);
+    Utils.toast('success', `"${id}" qadami qo'shildi`);
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+    this.activeTab = 'formula_builder';
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+    setTimeout(() => this._runTest(), 100);
+  },
+
+  saveFormulaSteps() {
+    // Hozirgi qadamlarni olish (DOM dan emas, memory dan — qo'shish orqali saqlanadi)
+    const steps = FormulaEngine.getSteps(this.clinicId);
+    FormulaEngine.saveSteps(this.clinicId, steps);
+    Utils.toast('success', '✅ Formula qadamlari saqlandi');
+  },
+
+  _deleteStep(idx) {
+    const steps = FormulaEngine.getSteps(this.clinicId).slice();
+    steps.splice(idx, 1);
+    FormulaEngine.saveSteps(this.clinicId, steps);
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+    setTimeout(() => this._runTest(), 100);
+  },
+
+  _moveStep(idx, dir) {
+    const steps = FormulaEngine.getSteps(this.clinicId).slice();
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= steps.length) return;
+    [steps[idx], steps[newIdx]] = [steps[newIdx], steps[idx]];
+    FormulaEngine.saveSteps(this.clinicId, steps);
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+    setTimeout(() => this._runTest(), 100);
+  },
+
+  _editStep(idx) {
+    const steps = FormulaEngine.getSteps(this.clinicId);
+    const s = steps[idx];
+    if (!s) return;
+    Utils.openModal(`
+      <div class="modal-header">
+        <div class="modal-title">✏️ Qadamni tahrirlash</div>
+        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--sp-4)">
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Emoji</label>
+            <input class="input" id="edit-step-emoji" value="${s.emoji||'📌'}" style="text-align:center;font-size:18px" maxlength="2" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">ID (kodi)</label>
+            <input class="input" id="edit-step-id" value="${s.id}" style="font-family:var(--font-mono);font-weight:700" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Nom</label>
+            <input class="input" id="edit-step-label" value="${s.label}" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 140px;gap:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Formula iborasi</label>
+            <input class="input" id="edit-step-expr" value="${s.expr}" style="font-family:var(--font-mono)" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Turi</label>
+            <select class="select" id="edit-step-type">
+              <option value="formula" ${s.type==='formula'?'selected':''}>🧮 Formula</option>
+              <option value="sum"     ${s.type==='sum'    ?'selected':''}>📊 Jami</option>
+              <option value="result"  ${s.type==='result' ?'selected':''}>💚 Natija</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">Bekor</button>
+        <button class="btn btn-primary" onclick="AdminSettings._saveEditStep(${idx})">${Utils.icon('save',14)} Saqlash</button>
+      </div>
+    `);
+  },
+
+  _saveEditStep(idx) {
+    const steps = FormulaEngine.getSteps(this.clinicId).slice();
+    const newId    = document.getElementById('edit-step-id')?.value?.trim().toUpperCase().replace(/\s/g,'');
+    const newLabel = document.getElementById('edit-step-label')?.value?.trim();
+    const newExpr  = document.getElementById('edit-step-expr')?.value?.trim();
+    const newType  = document.getElementById('edit-step-type')?.value || 'formula';
+    const newEmoji = document.getElementById('edit-step-emoji')?.value?.trim() || '📌';
+
+    if (!newId || !newLabel || !newExpr) { Utils.toast('error', 'Barcha maydonlarni to\'ldiring'); return; }
+
+    steps[idx] = { id: newId, label: newLabel, expr: newExpr, type: newType, emoji: newEmoji };
+    FormulaEngine.saveSteps(this.clinicId, steps);
+    Utils.closeModal();
+    Utils.toast('success', 'Qadam yangilandi');
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+    setTimeout(() => this._runTest(), 100);
+  },
+
+  _previewStep() {
+    const expr = document.getElementById('new-step-expr')?.value?.trim();
+    const prev = document.getElementById('step-preview');
+    if (!prev) return;
+    if (!expr) { prev.style.display = 'none'; return; }
+    const test = FormulaEngine.testFormula(expr, {
+      tushum: 2400000, texnik: 0, implantCount: 0, implantValue: 300000, percent: 35, avans: 1100000
+    });
+    prev.style.display = '';
+    if (test.ok) {
+      prev.innerHTML = `✅ Namuna natija: <strong style="color:var(--brand-success);font-family:var(--font-mono)">${Utils.formatMoneyShort(test.result)} so'm</strong><span style="color:var(--text-muted);font-size:11px;margin-left:8px">(tushum=2.4 mln, foiz=35%, avans=1.1 mln)</span>`;
+    } else {
+      prev.innerHTML = `❌ Formula xato: <span style="color:var(--brand-danger)">${test.error}</span>`;
+    }
+  },
+
+  _runTest() {
+    const tbl = document.getElementById('test-result-table');
+    if (!tbl) return;
+
+    const tushum       = Utils.num(document.getElementById('test-tushum')?.value);
+    const texnik       = Utils.num(document.getElementById('test-texnik')?.value);
+    const implantCount = Utils.num(document.getElementById('test-implantCount')?.value);
+    const implantValue = Utils.num(document.getElementById('test-implantValue')?.value);
+    const percent      = Utils.num(document.getElementById('test-percent')?.value);
+    const avans        = Utils.num(document.getElementById('test-avans')?.value);
+
+    const stepResults = FormulaEngine.calcSteps(this.clinicId, {
+      tushum, texnik, implantCount, avans,
+      doctor: { percent, implantValue }
+    });
+
+    if (!stepResults.length) {
+      tbl.innerHTML = '<div style="color:var(--text-muted);font-size:var(--text-sm)">Qadam yo\'q</div>';
+      return;
+    }
+
+    const typeColors = { sum: '#22d3ee', formula: 'var(--brand-primary)', result: 'var(--brand-success)' };
+
+    tbl.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="table" style="font-size:13px">
+          <thead><tr>
+            <th>Qadam</th>
+            <th>Nom</th>
+            <th>Hisob</th>
+            <th class="right">Natija</th>
+          </tr></thead>
+          <tbody>
+            ${stepResults.map(s => `
+              <tr style="${s.type==='result'?'background:rgba(16,185,129,0.06);font-weight:700':''} ">
+                <td><code style="color:${typeColors[s.type]||'var(--brand-primary)'};font-weight:800">${s.emoji} ${s.id}</code></td>
+                <td>${s.label}</td>
+                <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${s.exprText}</td>
+                <td class="right mono" style="color:${typeColors[s.type]||'var(--text-primary)'}">
+                  ${s.value < 0 ? '−' : ''}${Utils.formatMoneyShort(Math.abs(s.value))}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  _resetFormulaToDefault() {
+    if (!confirm('Formulani standart holatga qaytarasizmi? Barcha qadamlar o\'chadi.')) return;
+    FormulaEngine.saveSteps(this.clinicId, FormulaEngine.DEFAULT_STEPS);
+    Utils.toast('success', 'Standartga qaytarildi');
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+    setTimeout(() => this._runTest(), 100);
+  }
 };
