@@ -28,24 +28,8 @@ const AdminDoctors = {
           ${!doctors.length ? `<div class="empty-state"><div class="empty-icon">👨‍⚕️</div><div class="empty-title">Vrachlar yo'q</div></div>` : ''}
         </div>
 
-        <!-- Formula qo'llanma -->
-        <div class="card">
-          <div class="card-header"><div class="card-title">${Utils.icon('formula', 18)} Hisoblash formulasi</div></div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-4);">
-            ${[
-              { label: 'JTS', color: '#22d3ee', desc: 'Jami Texnik Summasi', formula: '∑ (kunlik texnik xarajat)' },
-              { label: 'JIS', color: '#a855f7', desc: 'Jami Implant Summasi', formula: 'implant_soni × narx_per_ta' },
-              { label: 'VU',  color: '#10b981', desc: 'Vrach Ulushi',         formula: '(Tushum − JTS) × foiz% + JIS' },
-              { label: 'JVB', color: '#6366f1', desc: 'Vrachga Beriladi',     formula: 'VU + JTS − Avanslar' },
-            ].map(f => `
-              <div style="padding:var(--sp-3);border:1px solid ${f.color}33;border-radius:var(--r-md);background:${f.color}0d;">
-                <div style="font-size:13px;font-weight:800;color:${f.color};margin-bottom:4px">${f.label}</div>
-                <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">${f.desc}</div>
-                <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-muted)">${f.formula}</div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
+        <!-- FORMULA BUILDER -->
+        ${this._renderFormulaBuilder(clinicId)}
 
       </div>
     `;
@@ -355,6 +339,606 @@ const AdminDoctors = {
     if (!ok) return;
     DB.deleteDoctor(clinicId, docId);
     Utils.toast('success', 'O\'chirildi');
+    this.render();
+  },
+
+  // ================================================================
+  // 📐 FORMULA BUILDER — Vizual formula quriluvchi
+  // ================================================================
+
+  // Formula builder ichki holati
+  _formulaTokens: [],  // Joriy yig'ilayotgan formula tokenlari
+  _editingFormulaId: null, // Tahrirlanayotgan formula ID
+  _editMode: 'visual', // 'visual' yoki 'text'
+
+  /**
+   * Klinika uchun saqlangan formulalarni olish
+   */
+  _getClinicFormulas(clinicId) {
+    const settings = DB.getSettings(clinicId);
+    return settings.salaryFormulas || [
+      {
+        id: 'vu_default',
+        name: 'VU (Vrach Ulushi)',
+        description: 'Oylik uchun',
+        formula: '(tushum - texnik) * percent / 100 + implant_count * implant_value',
+        isDefault: true,
+        createdAt: new Date().toISOString()
+      }
+    ];
+  },
+
+  /**
+   * Formula tokenlarini string ga aylantirish
+   */
+  _tokensToFormula(tokens) {
+    return tokens.map(t => t.value).join(' ');
+  },
+
+  /**
+   * Formula string ni tokenlarga aylantirish (parse)
+   */
+  _formulaToTokens(formulaStr) {
+    if (!formulaStr) return [];
+    const vars = FormulaEngine.getAvailableVars();
+    const varKeys = vars.map(v => v.key);
+    // Sort by length descending to match longer keys first
+    const sortedKeys = [...varKeys].sort((a, b) => b.length - a.length);
+
+    const tokens = [];
+    let str = formulaStr.trim();
+
+    while (str.length > 0) {
+      str = str.trimStart();
+      if (!str.length) break;
+
+      // Check for variable
+      let matched = false;
+      for (const key of sortedKeys) {
+        if (str.startsWith(key) && (str.length === key.length || /[^a-z_]/.test(str[key.length]))) {
+          const varInfo = vars.find(v => v.key === key);
+          tokens.push({ type: 'var', value: key, label: varInfo?.label || key });
+          str = str.slice(key.length);
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+
+      // Check for operator
+      if ('+-*/'.includes(str[0])) {
+        tokens.push({ type: 'operator', value: str[0] });
+        str = str.slice(1);
+        continue;
+      }
+
+      // Check for parentheses
+      if ('()'.includes(str[0])) {
+        tokens.push({ type: 'paren', value: str[0] });
+        str = str.slice(1);
+        continue;
+      }
+
+      // Check for number
+      const numMatch = str.match(/^(\d+\.?\d*)/);
+      if (numMatch) {
+        tokens.push({ type: 'number', value: numMatch[1] });
+        str = str.slice(numMatch[1].length);
+        continue;
+      }
+
+      // Skip unknown character
+      str = str.slice(1);
+    }
+
+    return tokens;
+  },
+
+  /**
+   * Token chiplarini HTML ga render qilish
+   */
+  _renderChipsHTML(tokens) {
+    if (!tokens.length) {
+      return '<span class="formula-bar-placeholder">👆 Quyidagi tugmalardan bosib formulani yig\'ing...</span>';
+    }
+    return tokens.map((t, i) => {
+      let cls = '', label = '';
+      switch (t.type) {
+        case 'var':
+          cls = 'chip-var';
+          label = t.label || t.value;
+          break;
+        case 'operator':
+          cls = 'chip-operator';
+          label = t.value;
+          break;
+        case 'number':
+          cls = 'chip-number';
+          label = t.value;
+          break;
+        case 'paren':
+          cls = 'chip-paren';
+          label = t.value;
+          break;
+      }
+      return `<span class="formula-chip ${cls}" data-idx="${i}">
+        ${label}
+        <span class="chip-remove" onclick="event.stopPropagation();AdminDoctors._removeToken(${i})">✕</span>
+      </span>`;
+    }).join('');
+  },
+
+  /**
+   * Formula builder bo'limini render qilish
+   */
+  _renderFormulaBuilder(clinicId) {
+    const formulas = this._getClinicFormulas(clinicId);
+    const vars = FormulaEngine.getAvailableVars();
+    const presets = FormulaEngine.getPresetFormulas();
+
+    // Agar tokenlar bo'sh bo'lsa va formulalar mavjud bo'lsa, birinchisini yuklash
+    if (!this._formulaTokens.length && formulas.length > 0 && !this._editingFormulaId) {
+      this._formulaTokens = this._formulaToTokens(formulas[0].formula);
+      this._editingFormulaId = formulas[0].id;
+    }
+
+    const currentFormula = this._tokensToFormula(this._formulaTokens);
+    const previewResult = FormulaEngine.testFormula(currentFormula, {});
+
+    return `
+      <div class="formula-builder">
+        <div class="formula-builder-header">
+          <div class="formula-builder-title">
+            <span style="font-size:22px">📐</span>
+            <span>Hisoblash formulasi</span>
+            <span class="badge badge-neutral" style="font-size:10px">Oylik uchun</span>
+          </div>
+          <div style="display:flex;gap:var(--sp-2)">
+            <button class="btn btn-secondary btn-sm" onclick="AdminDoctors._toggleEditMode()">
+              ${this._editMode === 'visual' ? '✏️ Matn rejimi' : '🧩 Vizual rejim'}
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="AdminDoctors._openNewFormulaModal('${clinicId}')">
+              ${Utils.icon('plus', 14)} Yangi formula
+            </button>
+          </div>
+        </div>
+
+        <div class="formula-builder-body">
+          <!-- Saqlangan formulalar ro'yxati -->
+          <div class="formula-list" id="formula-list">
+            ${formulas.map((f, i) => `
+              <div class="formula-list-item ${this._editingFormulaId === f.id ? 'style="border-color:rgba(99,102,241,0.5);background:rgba(99,102,241,0.04)"' : ''}"
+                id="formula-item-${f.id}">
+                <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1">
+                  <div style="display:flex;align-items:center;gap:var(--sp-2)">
+                    <span class="formula-name">${f.name}</span>
+                    ${f.isDefault ? '<span class="badge badge-success" style="font-size:9px">standart</span>' : ''}
+                    ${f.description ? `<span style="font-size:11px;color:var(--text-muted)">${f.description}</span>` : ''}
+                  </div>
+                  <div class="formula-raw-text" style="padding:6px 10px;font-size:12px">
+                    ${this._renderFormulaExprChips(f.formula)}
+                  </div>
+                </div>
+                <div class="formula-actions">
+                  <button class="btn btn-secondary btn-sm btn-icon" onclick="AdminDoctors._loadFormulaToBuilder('${clinicId}','${f.id}')" title="Tahrirlash">
+                    ${Utils.icon('edit', 14)}
+                  </button>
+                  <button class="btn btn-primary btn-sm" onclick="AdminDoctors._applyFormulaToAll('${clinicId}','${f.id}')" title="Barcha vrachlarga qo'llash">
+                    🔄 Qo'llash
+                  </button>
+                  ${!f.isDefault ? `
+                    <button class="btn btn-danger btn-sm btn-icon" onclick="AdminDoctors._deleteClinicFormula('${clinicId}','${f.id}')" title="O'chirish">
+                      ${Utils.icon('trash', 14)}
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+            `).join('')}
+            ${!formulas.length ? '<div style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--sp-4);text-align:center">Hali formula qo\'shilmagan</div>' : ''}
+          </div>
+
+          <!-- Formulani yig'ish zonasi -->
+          <div style="border:1px solid rgba(99,102,241,0.2);border-radius:var(--r-lg);padding:var(--sp-4);background:rgba(99,102,241,0.02)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3)">
+              <div style="font-size:var(--text-sm);font-weight:700;color:var(--text-primary)">
+                🧮 ${this._editingFormulaId ? 'Formulani tahrirlash' : 'Yangi formula quriluvchi'}
+              </div>
+              <div style="display:flex;gap:var(--sp-2)">
+                <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="AdminDoctors._undoLastToken()">↩ Ortga</button>
+                <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--brand-danger)" onclick="AdminDoctors._clearAllTokens()">🗑️ Tozalash</button>
+              </div>
+            </div>
+
+            <!-- VU = [...] formulani ko'rsatish satri -->
+            <div style="display:flex;align-items:flex-start;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+              <div style="background:rgba(16,185,129,0.15);color:#10b981;font-weight:800;font-size:16px;padding:8px 14px;border-radius:8px;font-family:var(--font-mono);flex-shrink:0;border:1px solid rgba(16,185,129,0.3)">VU =</div>
+              ${this._editMode === 'visual' ? `
+                <div class="formula-bar" id="formula-bar" onclick="document.getElementById('formula-bar')?.focus()">
+                  ${this._renderChipsHTML(this._formulaTokens)}
+                </div>
+              ` : `
+                <textarea class="formula-textarea-edit" id="formula-text-edit"
+                  oninput="AdminDoctors._onTextFormulaInput()"
+                  placeholder="(tushum - texnik) * percent / 100 + implant_count * implant_value">${currentFormula}</textarea>
+              `}
+            </div>
+
+            ${this._editMode === 'visual' ? `
+              <!-- O'zgaruvchilar (kataklar) -->
+              <div class="formula-token-group">
+                <div class="formula-token-group-label">📊 O'zgaruvchilar (kataklar) — bosing, formulaga qo'shiladi</div>
+                <div class="formula-token-buttons">
+                  ${vars.map(v => `
+                    <button class="formula-token-btn token-var" onclick="AdminDoctors._addToken('var','${v.key}','${v.label}')" title="${v.desc}">
+                      ${v.label}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+
+              <!-- Amallar (ishoralar) -->
+              <div style="display:flex;gap:var(--sp-5);flex-wrap:wrap">
+                <div class="formula-token-group">
+                  <div class="formula-token-group-label">⚡ Amallar (ishoralar)</div>
+                  <div class="formula-token-buttons">
+                    ${[
+                      { op: '+', title: 'Qo\'shish' },
+                      { op: '-', title: 'Ayirish' },
+                      { op: '*', title: 'Ko\'paytirish' },
+                      { op: '/', title: 'Bo\'lish' },
+                    ].map(o => `
+                      <button class="formula-token-btn token-op" onclick="AdminDoctors._addToken('operator','${o.op}')" title="${o.title}">
+                        ${o.op}
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+
+                <div class="formula-token-group">
+                  <div class="formula-token-group-label">🔗 Qavslar</div>
+                  <div class="formula-token-buttons">
+                    <button class="formula-token-btn token-paren" onclick="AdminDoctors._addToken('paren','(')" title="Ochiq qavs">(</button>
+                    <button class="formula-token-btn token-paren" onclick="AdminDoctors._addToken('paren',')')" title="Yopiq qavs">)</button>
+                  </div>
+                </div>
+
+                <div class="formula-token-group">
+                  <div class="formula-token-group-label">🔢 Raqamlar</div>
+                  <div class="formula-token-buttons">
+                    ${['100', '0.5', '0.3', '0.2', '0.1'].map(n => `
+                      <button class="formula-token-btn token-num" onclick="AdminDoctors._addToken('number','${n}')">${n}</button>
+                    `).join('')}
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <input class="formula-num-input" id="custom-num-input" type="number" step="any" placeholder="raqam..." />
+                      <button class="formula-token-btn token-num" onclick="AdminDoctors._addCustomNumber()" style="font-size:11px;padding:6px 10px">
+                        ➕ Qo'sh
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tayyor shablonlar -->
+              <div class="formula-token-group">
+                <div class="formula-token-group-label">📋 Tayyor shablonlar (bosing — formula o'rnini bosadi)</div>
+                <div class="formula-token-buttons">
+                  ${presets.map(p => `
+                    <button class="formula-token-btn token-var" style="background:rgba(139,92,246,0.1);border-color:rgba(139,92,246,0.25);color:#8b5cf6"
+                      onclick="AdminDoctors._loadPresetFormula('${p.formula.replace(/'/g, "\\'")}')" title="${p.desc.replace(/'/g, "\\'")}">
+                      📋 ${p.name}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+
+            <!-- Real-time preview -->
+            <div id="formula-preview-area">
+              ${this._renderFormulaPreview(currentFormula)}
+            </div>
+
+            <!-- Saqlash tugmasi -->
+            <div style="display:flex;gap:var(--sp-3);justify-content:flex-end;padding-top:var(--sp-3);border-top:1px solid var(--border-subtle)">
+              ${this._editingFormulaId ? `
+                <button class="btn btn-secondary" onclick="AdminDoctors._cancelFormulaEdit()">Bekor</button>
+                <button class="btn btn-primary" onclick="AdminDoctors._saveClinicFormula('${clinicId}')">
+                  ${Utils.icon('save', 14)} Formulani saqlash
+                </button>
+              ` : `
+                <button class="btn btn-primary" onclick="AdminDoctors._openNewFormulaModal('${clinicId}')">
+                  ${Utils.icon('save', 14)} Yangi formula sifatida saqlash
+                </button>
+              `}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  /**
+   * Formula ifodalarini mini chiplar sifatida ko'rsatish (ro'yxat uchun)
+   */
+  _renderFormulaExprChips(formulaStr) {
+    const tokens = this._formulaToTokens(formulaStr);
+    return tokens.map(t => {
+      const colors = {
+        var: 'color:#818cf8',
+        operator: 'color:#fbbf24;font-weight:800',
+        number: 'color:#6ee7b7',
+        paren: 'color:#f472b6;font-weight:800'
+      };
+      return `<span style="${colors[t.type] || ''};font-family:var(--font-mono)">${t.label || t.value}</span>`;
+    }).join(' ');
+  },
+
+  /**
+   * Formula preview panelini render qilish
+   */
+  _renderFormulaPreview(formulaStr) {
+    if (!formulaStr) {
+      return '<div class="formula-preview-panel"><div class="formula-preview-icon error">❓</div><div class="formula-preview-info"><div class="formula-preview-label">Formula bo\'sh</div><div class="formula-preview-value" style="color:var(--text-muted)">Formulani yig\'ing</div></div></div>';
+    }
+    const result = FormulaEngine.testFormula(formulaStr, {});
+    if (result.ok) {
+      return `
+        <div class="formula-preview-panel">
+          <div class="formula-preview-icon success">✅</div>
+          <div class="formula-preview-info">
+            <div class="formula-preview-label">Misol: tushum=1,000,000 | texnik=200,000 | implant=2ta | foiz=35%</div>
+            <div class="formula-preview-value" style="color:var(--brand-success)">${Utils.formatMoney(result.result)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10px;color:var(--text-muted)">Formula matni</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);max-width:200px;word-break:break-all">${formulaStr}</div>
+          </div>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="formula-preview-panel" style="border-color:rgba(239,68,68,0.3)">
+          <div class="formula-preview-icon error">❌</div>
+          <div class="formula-preview-info">
+            <div class="formula-preview-label">Formula xatosi</div>
+            <div class="formula-preview-value" style="color:var(--brand-danger)">Formulani tekshiring!</div>
+          </div>
+        </div>
+      `;
+    }
+  },
+
+  // ── TOKEN BOSHQARUVI ──────────────────────────────────────
+
+  _addToken(type, value, label) {
+    this._formulaTokens.push({ type, value, label: label || value });
+    this._updateFormulaBar();
+  },
+
+  _removeToken(idx) {
+    this._formulaTokens.splice(idx, 1);
+    this._updateFormulaBar();
+  },
+
+  _undoLastToken() {
+    if (this._formulaTokens.length > 0) {
+      this._formulaTokens.pop();
+      this._updateFormulaBar();
+    }
+  },
+
+  _clearAllTokens() {
+    this._formulaTokens = [];
+    this._updateFormulaBar();
+  },
+
+  _addCustomNumber() {
+    const input = document.getElementById('custom-num-input');
+    const val = input?.value?.trim();
+    if (!val || isNaN(Number(val))) {
+      Utils.toast('error', 'Raqam kiriting');
+      return;
+    }
+    this._addToken('number', val);
+    input.value = '';
+  },
+
+  _loadPresetFormula(formulaStr) {
+    this._formulaTokens = this._formulaToTokens(formulaStr);
+    this._updateFormulaBar();
+  },
+
+  _toggleEditMode() {
+    this._editMode = this._editMode === 'visual' ? 'text' : 'visual';
+    // Agar text rejimga o'tayotgan bo'lsa — tokenlarni textga, va aksincha
+    if (this._editMode === 'visual') {
+      const textarea = document.getElementById('formula-text-edit');
+      if (textarea) {
+        this._formulaTokens = this._formulaToTokens(textarea.value);
+      }
+    }
+    // Sahifani qayta render
+    const session = Auth.requireAuth(['admin', 'super_admin']);
+    if (session) this.render();
+  },
+
+  _onTextFormulaInput() {
+    const textarea = document.getElementById('formula-text-edit');
+    if (textarea) {
+      const formula = textarea.value;
+      const previewArea = document.getElementById('formula-preview-area');
+      if (previewArea) {
+        previewArea.innerHTML = this._renderFormulaPreview(formula);
+      }
+      // Tokenlarni yangilash (visual ga qaytganda ishlatiladi)
+      this._formulaTokens = this._formulaToTokens(formula);
+    }
+  },
+
+  /**
+   * Formula bar va preview ni yangilash
+   */
+  _updateFormulaBar() {
+    const bar = document.getElementById('formula-bar');
+    if (bar) {
+      bar.innerHTML = this._renderChipsHTML(this._formulaTokens);
+    }
+    const formula = this._tokensToFormula(this._formulaTokens);
+    const previewArea = document.getElementById('formula-preview-area');
+    if (previewArea) {
+      previewArea.innerHTML = this._renderFormulaPreview(formula);
+    }
+  },
+
+  // ── KLINIKA FORMULALARI BOSHQARUVI ─────────────────────────
+
+  _loadFormulaToBuilder(clinicId, formulaId) {
+    const formulas = this._getClinicFormulas(clinicId);
+    const formula = formulas.find(f => f.id === formulaId);
+    if (!formula) return;
+    this._formulaTokens = this._formulaToTokens(formula.formula);
+    this._editingFormulaId = formulaId;
+    this.render();
+    Utils.toast('info', `"${formula.name}" formulasi yuklandi`);
+  },
+
+  _openNewFormulaModal(clinicId) {
+    const currentFormula = this._tokensToFormula(this._formulaTokens);
+    Utils.openModal(`
+      <div class="modal-header">
+        <div class="modal-title">📐 Yangi formula saqlash</div>
+        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--sp-4)">
+        <div class="form-group">
+          <label class="label">Formula nomi *</label>
+          <input class="input" id="new-formula-name" placeholder="masalan: Oylik uchun, VU, Ikkinchi variant..." />
+        </div>
+        <div class="form-group">
+          <label class="label">Tavsif (ixtiyoriy)</label>
+          <input class="input" id="new-formula-desc" placeholder="Qisqacha izoh" />
+        </div>
+        <div class="form-group">
+          <label class="label">Formula</label>
+          <textarea class="formula-textarea-edit" id="new-formula-expr"
+            placeholder="(tushum - texnik) * percent / 100 + implant_count * implant_value">${currentFormula}</textarea>
+          <div class="hint" style="margin-top:4px">Vizual quriluvchida yig'gan formula avtomatik qo'yildi. Kerak bo'lsa tahrirlang.</div>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:var(--sp-2);cursor:pointer">
+            <input type="checkbox" id="new-formula-default" />
+            <span style="font-size:var(--text-sm)">Standart formula qilish (yangi vrachlarga avtomatik qo'llanadi)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">Bekor</button>
+        <button class="btn btn-primary" onclick="AdminDoctors._saveNewFormula('${clinicId}')">
+          ${Utils.icon('save', 14)} Saqlash
+        </button>
+      </div>
+    `);
+  },
+
+  _saveNewFormula(clinicId) {
+    const name = document.getElementById('new-formula-name')?.value?.trim();
+    const desc = document.getElementById('new-formula-desc')?.value?.trim();
+    const formula = document.getElementById('new-formula-expr')?.value?.trim();
+    const isDefault = document.getElementById('new-formula-default')?.checked || false;
+
+    if (!name) { Utils.toast('error', 'Formula nomini kiriting'); return; }
+    if (!formula) { Utils.toast('error', 'Formulani kiriting'); return; }
+
+    // Formulani tekshirish
+    const test = FormulaEngine.testFormula(formula, {});
+    if (!test.ok) { Utils.toast('error', 'Formula xato! Tekshiring.'); return; }
+
+    const formulas = this._getClinicFormulas(clinicId);
+
+    // Agar default qilinsa, boshqalarni default dan olib tashlash
+    if (isDefault) {
+      formulas.forEach(f => f.isDefault = false);
+    }
+
+    formulas.push({
+      id: DB.generateId('frm_'),
+      name,
+      description: desc || '',
+      formula,
+      isDefault,
+      createdAt: new Date().toISOString()
+    });
+
+    DB.updateSettings(clinicId, { salaryFormulas: formulas });
+
+    Utils.closeModal();
+    Utils.toast('success', `"${name}" formulasi saqlandi`);
+
+    // Tokenlarni yangi formula bilan yangilash
+    this._formulaTokens = this._formulaToTokens(formula);
+    this._editingFormulaId = formulas[formulas.length - 1].id;
+    this.render();
+  },
+
+  _saveClinicFormula(clinicId) {
+    if (!this._editingFormulaId) return;
+
+    const formula = this._tokensToFormula(this._formulaTokens);
+    if (!formula) { Utils.toast('error', 'Formula bo\'sh!'); return; }
+
+    const test = FormulaEngine.testFormula(formula, {});
+    if (!test.ok) { Utils.toast('error', 'Formula xato! Tekshiring.'); return; }
+
+    const formulas = this._getClinicFormulas(clinicId);
+    const idx = formulas.findIndex(f => f.id === this._editingFormulaId);
+    if (idx >= 0) {
+      formulas[idx].formula = formula;
+      formulas[idx].updatedAt = new Date().toISOString();
+      DB.updateSettings(clinicId, { salaryFormulas: formulas });
+      Utils.toast('success', `"${formulas[idx].name}" formulasi yangilandi`);
+      this.render();
+    }
+  },
+
+  _cancelFormulaEdit() {
+    this._formulaTokens = [];
+    this._editingFormulaId = null;
+    this.render();
+  },
+
+  async _deleteClinicFormula(clinicId, formulaId) {
+    const ok = await Utils.confirm('Bu formulani o\'chirishni tasdiqlaysizmi?', 'Formula o\'chirish');
+    if (!ok) return;
+
+    const formulas = this._getClinicFormulas(clinicId);
+    const filtered = formulas.filter(f => f.id !== formulaId);
+    DB.updateSettings(clinicId, { salaryFormulas: filtered });
+
+    if (this._editingFormulaId === formulaId) {
+      this._editingFormulaId = null;
+      this._formulaTokens = [];
+    }
+
+    Utils.toast('success', 'Formula o\'chirildi');
+    this.render();
+  },
+
+  async _applyFormulaToAll(clinicId, formulaId) {
+    const formulas = this._getClinicFormulas(clinicId);
+    const formula = formulas.find(f => f.id === formulaId);
+    if (!formula) return;
+
+    const doctors = DB.getDoctors(clinicId);
+    const ok = await Utils.confirm(
+      `"${formula.name}" formulasini barcha ${doctors.length} ta vrachga qo'llashni tasdiqlaysizmi?\n\nFormula: ${formula.formula}`,
+      'Barcha vrachlarga qo\'llash'
+    );
+    if (!ok) return;
+
+    for (const doc of doctors) {
+      doc.formula = formula.formula;
+      DB.saveDoctor(clinicId, doc);
+    }
+    Utils.toast('success', `${doctors.length} ta vrachga "${formula.name}" formulasi qo'llandi`);
     this.render();
   }
 };
