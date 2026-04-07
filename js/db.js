@@ -59,11 +59,19 @@ const DB = {
       this._reportCache.set(`${clinicId}_${today}`, todayReport);
     }
 
-    // Super admin: klinikalar ro'yxatini yuklash
+    // Klinika ma'lumotlarini yuklash (admin va super_admin)
     try {
       const user = Auth.getSession();
       if (user && user.role === 'super_admin') {
         this._c.clinics = await API.get('/clinics');
+      } else if (clinicId) {
+        // Admin uchun o'z klinikasini yuklash
+        const clinic = await API.get(`/clinics/${clinicId}`);
+        if (clinic) {
+          const idx = this._c.clinics.findIndex(c => c.id === clinic.id);
+          if (idx >= 0) this._c.clinics[idx] = clinic;
+          else this._c.clinics.push(clinic);
+        }
       }
     } catch {}
   },
