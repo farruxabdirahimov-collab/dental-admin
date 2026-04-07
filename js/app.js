@@ -139,18 +139,37 @@ const SuperAdmin = {
             <div style="font-size:var(--text-md);font-weight:700">${c.name}</div>
             <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:2px">${c.address || '—'}</div>
           </div>
+          <!-- 3-dot menu -->
+          <div style="position:relative">
+            <button class="btn btn-ghost btn-sm" style="padding:4px 8px;font-size:18px;line-height:1"
+              onclick="SuperAdmin._toggleMenu('menu-${c.id}')" title="Boshqa amallar">⋮</button>
+            <div id="menu-${c.id}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-md);min-width:180px;padding:var(--sp-2);box-shadow:var(--shadow-lg)">
+              <button class="btn btn-ghost btn-sm" style="width:100%;text-align:left;padding:var(--sp-2) var(--sp-3)"
+                onclick="SuperAdmin._toggleMenu('menu-${c.id}');SuperAdmin.openSubscription('${c.id}')">
+                🗓️ Abonement boshqaruvi
+              </button>
+              <button class="btn btn-ghost btn-sm" style="width:100%;text-align:left;padding:var(--sp-2) var(--sp-3)"
+                onclick="SuperAdmin._toggleMenu('menu-${c.id}');SuperAdmin.openUsers('${c.id}','${c.name}')">
+                🔑 Login / Parol
+              </button>
+              <div style="border-top:1px solid var(--border);margin:var(--sp-1) 0"></div>
+              <button class="btn btn-ghost btn-sm" style="width:100%;text-align:left;padding:var(--sp-2) var(--sp-3);color:${c.active ? 'var(--brand-warning)' : 'var(--brand-success)'}"
+                onclick="SuperAdmin._toggleMenu('menu-${c.id}');SuperAdmin.toggleActive('${c.id}',${c.active})">
+                ${c.active ? '⏸️ Vaqtincha to\'xtatish' : '▶️ Qayta yoqish'}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:var(--sp-4)">
           ${subBadge} ${activityBadge}
         </div>
 
-        <!-- Stats row -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4)">
           ${[
             ['👨‍⚕️', c.doctorCount, 'Vrach'],
             ['💉', c.nurseCount, 'Hamshira'],
-            ['📋', c.reportCount, 'Hisobot'],
+            ['📋', c.reportCount, 'Kun'],
             ['👤', c.userCount, 'Foydalanuvchi'],
           ].map(([icon, val, lbl]) => `
             <div style="text-align:center;padding:var(--sp-2);background:var(--bg-secondary);border-radius:var(--r-sm)">
@@ -161,26 +180,32 @@ const SuperAdmin = {
           `).join('')}
         </div>
 
-        <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:var(--sp-3);gap:var(--sp-2);flex-wrap:wrap">
-          <div style="font-size:var(--text-xs);color:var(--text-muted)">Oxirgi faollik: ${lastAct}</div>
-          <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap">
-            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openClinicView('${c.id}','${c.name}')" title="Klinika hisobotini ko'rish">
-              👁️ Ko'rish
-            </button>
-            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openSubscription('${c.id}')" title="Abonement boshqaruvi">
-              🗓️ Abonement
-            </button>
-            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openUsers('${c.id}','${c.name}')" title="Login va parolni o'zgartirish">
-              🔑 Login/Parol
-            </button>
-            <button class="btn btn-sm ${c.active ? 'btn-danger' : 'btn-primary'}"
-              onclick="SuperAdmin.toggleActive('${c.id}',${c.active})">
-              ${c.active ? '⛔ O\'chirish' : '✅ Yoqish'}
-            </button>
-          </div>
+        <div style="display:flex;gap:var(--sp-2);border-top:1px solid var(--border);padding-top:var(--sp-3)">
+          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="SuperAdmin.openClinicView('${c.id}','${c.name}')">
+            👁️ Ko'rish
+          </button>
+          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="SuperAdmin.openUsers('${c.id}','${c.name}')">
+            🔑 Login/Parol
+          </button>
         </div>
       </div>
     `;
+  },
+
+  _toggleMenu(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isOpen = el.style.display !== 'none';
+    // Boshqa ochiq menuларни yopish
+    document.querySelectorAll('[id^="menu-"]').forEach(m => m.style.display = 'none');
+    if (!isOpen) {
+      el.style.display = 'block';
+      // Tashqarini bosganda yop
+      setTimeout(() => {
+        const close = (e) => { if (!el.contains(e.target)) { el.style.display='none'; document.removeEventListener('click',close); } };
+        document.addEventListener('click', close);
+      }, 10);
+    }
   },
 
   // ── Abonement muddat boshqaruv ─────────────────────────────────────────────
@@ -407,69 +432,97 @@ const SuperAdmin = {
     `, { size: 'lg' });
   },
 
-  // ── Filiallar solishtirish ─────────────────────────────────────────────────
-  openCompare() {
-    const clinics = this._clinics;
-    if (!clinics.length) { Utils.toast('info', 'Filiallar yo\'q'); return; }
+  // ── Filiallar solishtirish (moliyaviy ma'lumotlar bilan) ─────────────────────────
+  async openCompare() {
+    Utils.openModal(`
+      <div class="modal-header">
+        <div class="modal-title">📊 Filiallar solishtirish — Bu oy</div>
+        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
+      </div>
+      <div style="text-align:center;padding:var(--sp-8);color:var(--text-muted)">⏳ Yuklanmoqda...</div>
+    `, { size: 'xl' });
 
-    const maxReports = Math.max(...clinics.map(c => c.reportCount || 0)) || 1;
-    const maxDoctors = Math.max(...clinics.map(c => c.doctorCount || 0)) || 1;
+    let data = [];
+    try { data = await API.get('/super/compare'); }
+    catch (e) { Utils.toast('error', 'Yuklanmadi', e.message); Utils.closeModal(); return; }
 
-    const barRow = (label, clinics, getValue, max, color) => `
-      <div style="margin-bottom:var(--sp-5)">
-        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:var(--sp-3);text-transform:uppercase;letter-spacing:.05em">${label}</div>
-        ${clinics.map(c => {
+    if (!data.length) { Utils.toast('info', 'Filiallar yo\'q'); Utils.closeModal(); return; }
+
+    const maxTushum = Math.max(...data.map(c => c.tushum), 1);
+    const now = new Date();
+    const monthName = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktyabr','Noyabr','Dekabr'][now.getMonth()];
+
+    const fmtM = v => v > 0 ? Utils.formatMoneyShort(v) : '—';
+    const colors = ['var(--brand-primary)','#10b981','#f59e0b','#ec4899','#8b5cf6','#22d3ee'];
+
+    const barRow = (label, getValue, max, color) => `
+      <div style="margin-bottom:var(--sp-3)">
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase">${label}</div>
+        ${data.map(c => {
           const val = getValue(c);
           const pct = max > 0 ? Math.min(100, (val / max) * 100) : 0;
           return `
-            <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-2)">
-              <div style="width:120px;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">${c.name}</div>
-              <div style="flex:1;height:22px;background:var(--bg-elevated);border-radius:4px;overflow:hidden">
-                <div style="height:100%;width:${pct.toFixed(1)}%;background:${color};border-radius:4px;display:flex;align-items:center;padding-left:8px;transition:width .3s">
-                  <span style="font-size:10px;font-weight:700;color:white;white-space:nowrap">${typeof val === 'number' && val > 100000 ? Utils.formatMoneyShort(val) : val}</span>
+            <div style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:4px">
+              <div style="width:130px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0">${c.name}</div>
+              <div style="flex:1;height:20px;background:var(--bg-elevated);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${pct.toFixed(1)}%;background:${color};border-radius:3px;display:flex;align-items:center;padding-left:6px">
+                  <span style="font-size:10px;font-weight:700;color:white;white-space:nowrap">${fmtM(val)}</span>
                 </div>
               </div>
             </div>`;}).join('')}
       </div>`;
 
-    Utils.openModal(`
+    const modalBody = `
       <div class="modal-header">
-        <div class="modal-title">📊 Filiallar solishtirish</div>
+        <div>
+          <div class="modal-title">📊 Filiallar solishtirish</div>
+          <div class="modal-sub">${monthName} ${now.getFullYear()} — ${data.length} ta filial</div>
+        </div>
         <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
       </div>
 
-      <!-- Jadval solishtirish -->
-      <div class="table-wrap" style="margin-bottom:var(--sp-5)">
-        <table class="table" style="font-size:12px">
+      <!-- Jadval (scroll) -->
+      <div style="overflow-x:auto;margin-bottom:var(--sp-5)">
+        <table class="table" style="font-size:12px;min-width:600px">
           <thead><tr>
-            <th>Ko'rsatkich</th>
-            ${clinics.map(c => `<th style="text-align:center">${c.name}</th>`).join('')}
+            <th style="min-width:120px">Ko'rsatkich</th>
+            ${data.map((c,i) => `<th style="text-align:right;color:${colors[i%colors.length]}">${c.name}</th>`).join('')}
           </tr></thead>
           <tbody>
             ${[
-              ['Holati', c => `<span class="badge" style="background:${c.subscription.color}20;color:${c.subscription.color}">${c.subscription.label}</span>`],
-              ['Vrachlar', c => c.doctorCount],
-              ['Hamshiralar', c => c.nurseCount],
-              ['Hisobotlar', c => c.reportCount],
-              ['Foydalanuvchilar', c => c.userCount],
-              ['Oxirgi faollik', c => c.lastReportDate ? Utils.formatDateShort(c.lastReportDate) : '—'],
+              ['💰 Jami tushum',     c => fmtM(c.tushum)],
+              ['💳 Naqtsiz (jami)', c => fmtM(c.nonCash)],
+              ['💻 Terminal',        c => fmtM(c.terminal)],
+              ['💵 Kassa naqd',      c => fmtM(c.kassaNaqd)],
+              ['📋 Xarajatlar',     c => fmtM(c.xarajat)],
+              ['💸 Avans (jami)',    c => fmtM(c.avans)],
+              ['📈 Foyda',           c => { const v=c.foyda; return `<span style="color:${v>=0?'var(--brand-success)':'var(--brand-danger)'};font-weight:700">${fmtM(Math.abs(v))}${v<0?' ⚠️':''}</span>`; }],
+              ['📊 Kun soni',        c => c.days],
             ].map(([label, fn]) => `
               <tr>
-                <td style="font-weight:600">${label}</td>
-                ${clinics.map(c => `<td style="text-align:center">${fn(c)}</td>`).join('')}
+                <td style="font-weight:600;white-space:nowrap">${label}</td>
+                ${data.map(c => `<td style="text-align:right;font-family:var(--font-mono)">${fn(c)}</td>`).join('')}
               </tr>`).join('')}
           </tbody>
         </table>
       </div>
 
-      <!-- Bar chart solishtirish -->
-      ${barRow('Hisobotlar soni', clinics, c => c.reportCount, maxReports, 'var(--brand-primary)')}
-      ${barRow('Vrachlar soni', clinics, c => c.doctorCount, maxDoctors, '#10b981')}
+      <!-- Bar chartlar -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-6)">
+        <div>${barRow('Tushum', c => c.tushum, maxTushum, 'var(--brand-primary)')}</div>
+        <div>${barRow('Foyda', c => Math.max(0, c.foyda), Math.max(...data.map(c=>Math.max(0,c.foyda)),1), '#10b981')}</div>
+        <div>${barRow('Xarajatlar', c => c.xarajat, Math.max(...data.map(c=>c.xarajat),1), 'var(--brand-danger)')}</div>
+        <div>${barRow('Kun soni', c => c.days, Math.max(...data.map(c=>c.days),1), '#f59e0b')}</div>
+      </div>
 
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">Yopish</button>
       </div>
-    `, { size: 'xl' });
+    `;
+
+    // Ochiq modalni yangilash
+    const modalContent = document.querySelector('#modal-overlay .modal-content');
+    if (modalContent) modalContent.innerHTML = modalBody;
   },
 
   // ── Yangi filial qo'shish ─────────────────────────────────────────────────

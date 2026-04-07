@@ -153,23 +153,22 @@ router.post('/clinics/:id/reset-password', superOnly, async (req, res) => {
 });
 
 // ── GET /api/super/clinics/:id/stats ─────────────────────────────────────────
-// Bu oy statistikasi + vrachlar + hamshiralar — readonly view uchun
 router.get('/clinics/:id/stats', superOnly, async (req, res) => {
   try {
     const id = req.params.id;
     const now = new Date();
     const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const from = `${year}-${month}-01`;
-    const to   = `${year}-${month}-31`;
+    const month = now.getMonth() + 1;
+    // Correct end-of-month: use first day of next month
+    const from = `${year}-${String(month).padStart(2,'0')}-01`;
+    const nextMonth = month === 12 ? `${year+1}-01-01` : `${year}-${String(month+1).padStart(2,'0')}-01`;
 
-    // Bu oy hisobotlar
     const { rows: reports } = await pool.query(
-      `SELECT data FROM daily_reports WHERE clinic_id=$1 AND date>=$2 AND date<=$3`,
-      [id, from, to]
+      `SELECT data FROM daily_reports WHERE clinic_id=$1 AND date>=$2 AND date<$3`,
+      [id, from, nextMonth]
     );
 
-    let tushum = 0, avansTotal = 0, xarajat = 0;
+    let tushum = 0, avansTotal = 0, xarajat = 0, nonCash = 0;
     for (const r of reports) {
       const d = r.data || {};
       for (const doc of Object.values(d.doctors || {})) {
@@ -179,27 +178,82 @@ router.get('/clinics/:id/stats', superOnly, async (req, res) => {
       for (const nurse of Object.values(d.nurses || {})) {
         avansTotal += Number(nurse.avans) || 0;
       }
-      for (const exp of (d.expenses || [])) {
-        xarajat += Number(exp.amount) || 0;
-      }
+      for (const exp of (d.expenses || [])) xarajat += Number(exp.amount) || 0;
+      for (const v of Object.values(d.payments || {})) nonCash += Number(v) || 0;
     }
 
-    // Vrachlar
     const { rows: doctors } = await pool.query(
-      'SELECT name, data FROM doctors WHERE clinic_id=$1 AND deleted=FALSE ORDER BY name',
-      [id]
-    );
-    // Hamshiralar
+      'SELECT name, data FROM doctors WHERE clinic_id=$1 AND deleted=FALSE ORDER BY name', [id]);
     const { rows: nurses } = await pool.query(
-      'SELECT name, data FROM nurses WHERE clinic_id=$1 AND deleted=FALSE ORDER BY name',
-      [id]
-    );
+      'SELECT name, data FROM nurses WHERE clinic_id=$1 AND deleted=FALSE ORDER BY name', [id]);
 
     res.json({
-      thisMonth: { tushum, avansTotal, xarajat, days: reports.length },
+      thisMonth: {
+        tushum, avansTotal, xarajat, nonCash,
+        kassaNaqd: tushum - nonCash,
+        foyda: tushum - xarajat - avansTotal,
+        days: reports.length
+      },
       doctors: doctors.map(d => ({ name: d.name, percent: d.data?.percent || 35 })),
       nurses:  nurses.map(n => ({ name: n.name, baseSalary: n.data?.baseSalary || 0 })),
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/super/compare ────────────────────────────────────────────────────
+// Barcha klinikalar taqqoslash (bu oy moliyaviy ma'lumotlar)
+router.get('/compare', superOnly, async (req, res) => {
+  try {
+    const { rows: clinics } = await pool.query(
+      'SELECT id, name FROM clinics ORDER BY created_at');
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const from = `${year}-${String(month).padStart(2,'0')}-01`;
+    const nextMonth = month === 12 ? `${year+1}-01-01` : `${year}-${String(month+1).padStart(2,'0')}-01`;
+
+    const result = [];
+    for (const clinic of clinics) {
+      const { rows: reports } = await pool.query(
+        `SELECT data FROM daily_reports WHERE clinic_id=$1 AND date>=$2 AND date<$3`,
+        [clinic.id, from, nextMonth]
+      );
+
+      let tushum = 0, avans = 0, xarajat = 0, nonCash = 0, terminal = 0;
+      for (const r of reports) {
+        const d = r.data || {};
+        for (const doc of Object.values(d.doctors || {})) {
+          tushum += Number(doc.tushum) || 0;
+          avans  += Number(doc.avans)  || 0;
+        }
+        for (const nurse of Object.values(d.nurses || {})) {
+          avans += Number(nurse.avans) || 0;
+        }
+        for (const exp of (d.expenses || [])) xarajat += Number(exp.amount) || 0;
+        const pmts = d.payments || {};
+        for (const [k, v] of Object.entries(pmts)) {
+          const amt = Number(v) || 0;
+          nonCash += amt;
+          if (k === 'terminal') terminal += amt;
+        }
+      }
+
+      result.push({
+        id: clinic.id,
+        name: clinic.name,
+        days: reports.length,
+        tushum,
+        xarajat,
+        avans,
+        nonCash,
+        terminal,
+        kassaNaqd: tushum - nonCash,
+        foyda: tushum - xarajat - avans,
+      });
+    }
+
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
