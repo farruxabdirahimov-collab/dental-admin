@@ -70,7 +70,7 @@ const AdminDoctors = {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);">
           <div style="padding:var(--sp-3);background:var(--bg-elevated);border-radius:var(--r-md);border:1px solid var(--border-subtle);">
             <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Tushum foizi</div>
-            <div style="font-family:var(--font-mono);font-size:1.3em;font-weight:800;color:var(--brand-primary)">${doc.percent || 35}%</div>
+            <div style="font-family:var(--font-mono);font-size:1.3em;font-weight:800;color:var(--brand-primary)">${doc.percent ?? 35}%</div>
           </div>
           <div style="padding:var(--sp-3);background:var(--bg-elevated);border-radius:var(--r-md);border:1px solid var(--border-subtle);">
             <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Implant</div>
@@ -80,8 +80,8 @@ const AdminDoctors = {
 
         <!-- Tez o'zgartirish: foiz slider -->
         <div style="margin-top:var(--sp-3);">
-          <label style="font-size:11px;color:var(--text-muted);">Foizni tez o'zgartirish: <span id="pct-label-${doc.id}">${doc.percent || 35}%</span></label>
-          <input type="range" min="10" max="60" step="1" value="${doc.percent || 35}"
+          <label style="font-size:11px;color:var(--text-muted);">Foizni tez o'zgartirish: <span id="pct-label-${doc.id}">${doc.percent ?? 35}%</span></label>
+          <input type="range" min="0" max="60" step="1" value="${doc.percent ?? 35}"
             style="width:100%;margin-top:4px;accent-color:var(--brand-primary)"
             oninput="document.getElementById('pct-label-${doc.id}').textContent=this.value+'%'"
             onchange="AdminDoctors.quickUpdatePercent('${clinicId}','${doc.id}',this.value)" />
@@ -145,7 +145,7 @@ const AdminDoctors = {
             <label class="label">📊 Tushum foizi (%)</label>
             <div class="input-prefix-wrap">
               <span class="input-prefix">%</span>
-              <input class="input" type="number" min="1" max="100" id="doc-modal-percent" value="${doc?.percent || 35}" />
+              <input class="input" type="number" min="0" max="100" id="doc-modal-percent" value="${doc?.percent ?? 35}" />
             </div>
           </div>
           <div class="form-group">
