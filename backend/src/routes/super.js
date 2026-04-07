@@ -257,4 +257,30 @@ router.get('/compare', superOnly, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POST /api/super/broadcast-settings ────────────────────────────────────────
+// Barcha klinikalarga sozlamalarni tarqatish (masalan: salaryFormulas)
+router.post('/broadcast-settings', superOnly, async (req, res) => {
+  try {
+    const updates = req.body; // { salaryFormulas: [...] } yoki boshqa settings
+    if (!updates || !Object.keys(updates).length) {
+      return res.status(400).json({ error: 'Sozlama ma\'lumoti kerak' });
+    }
+
+    const { rows: clinics } = await pool.query('SELECT id FROM clinics');
+
+    let updated = 0;
+    for (const clinic of clinics) {
+      await pool.query(`
+        INSERT INTO settings (clinic_id, data)
+        VALUES ($1, $2)
+        ON CONFLICT (clinic_id) DO UPDATE
+          SET data = settings.data || $2::jsonb, updated_at = NOW()
+      `, [clinic.id, JSON.stringify(updates)]);
+      updated++;
+    }
+
+    res.json({ ok: true, updated, message: `${updated} ta klinikaga tarqatildi` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

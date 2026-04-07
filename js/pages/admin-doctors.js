@@ -500,6 +500,12 @@ const AdminDoctors = {
             <button class="btn btn-primary btn-sm" onclick="AdminDoctors._openNewFormulaModal('${clinicId}')">
               ${Utils.icon('plus', 14)} Yangi formula
             </button>
+            ${Auth.getSession()?.role === 'super_admin' ? `
+              <button class="btn btn-sm" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;font-weight:600" 
+                onclick="AdminDoctors._broadcastFormulasToAll('${clinicId}')">
+                🌐 Barcha klinikalarga tarqatish
+              </button>
+            ` : ''}
           </div>
         </div>
 
@@ -940,5 +946,29 @@ const AdminDoctors = {
     }
     Utils.toast('success', `${doctors.length} ta vrachga "${formula.name}" formulasi qo'llandi`);
     this.render();
+  },
+
+  /**
+   * Barcha klinikalarga formulalarni tarqatish (super_admin)
+   */
+  async _broadcastFormulasToAll(clinicId) {
+    const formulas = this._getClinicFormulas(clinicId);
+    if (!formulas.length) {
+      Utils.toast('error', 'Avval formula yarating');
+      return;
+    }
+
+    const ok = await Utils.confirm(
+      `Bu klinikadagi ${formulas.length} ta formulani BARCHA klinikalarga tarqatishni tasdiqlaysizmi?\n\nFormulalar:\n${formulas.map(f => `• ${f.name}: ${f.formula}`).join('\n')}`,
+      '🌐 Barcha klinikalarga tarqatish'
+    );
+    if (!ok) return;
+
+    try {
+      const result = await API.post('/super/broadcast-settings', { salaryFormulas: formulas });
+      Utils.toast('success', result.message || 'Barcha klinikalarga tarqatildi');
+    } catch (err) {
+      Utils.toast('error', 'Xatolik: ' + (err.message || 'Tarqatish amalga oshmadi'));
+    }
   }
 };
