@@ -60,9 +60,14 @@ const SuperAdmin = {
       ${Components.renderPageHeader(
         '🏥 Filiallar Monitoringi',
         `${total} ta filial • ${active} faol • ${warning} ogohlantirish • ${expired} muddati tugagan`,
-        `<button class="btn btn-primary" onclick="SuperAdmin.openAddClinic()">
-          ${Utils.icon('plus', 14)} Yangi filial
-        </button>`
+        `<div style="display:flex;gap:var(--sp-2)">
+          <button class="btn btn-secondary" onclick="SuperAdmin.openCompare()">
+            📊 Solishtirish
+          </button>
+          <button class="btn btn-primary" onclick="SuperAdmin.openAddClinic()">
+            ${Utils.icon('plus', 14)} Yangi filial
+          </button>
+        </div>`
       )}
       <div class="page-body" style="display:flex;flex-direction:column;gap:var(--sp-5)">
 
@@ -156,18 +161,21 @@ const SuperAdmin = {
           `).join('')}
         </div>
 
-        <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:var(--sp-3);gap:var(--sp-2)">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:var(--sp-3);gap:var(--sp-2);flex-wrap:wrap">
           <div style="font-size:var(--text-xs);color:var(--text-muted)">Oxirgi faollik: ${lastAct}</div>
-          <div style="display:flex;gap:var(--sp-2)">
-            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openSubscription('${c.id}')" title="Abonement">
-              🗓️
+          <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openClinicView('${c.id}','${c.name}')" title="Klinika hisobotini ko'rish">
+              👁️ Ko'rish
             </button>
-            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openUsers('${c.id}','${c.name}')" title="Foydalanuvchilar / Parol">
-              🔑
+            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openSubscription('${c.id}')" title="Abonement boshqaruvi">
+              🗓️ Abonement
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="SuperAdmin.openUsers('${c.id}','${c.name}')" title="Login va parolni o'zgartirish">
+              🔑 Login/Parol
             </button>
             <button class="btn btn-sm ${c.active ? 'btn-danger' : 'btn-primary'}"
               onclick="SuperAdmin.toggleActive('${c.id}',${c.active})">
-              ${c.active ? '⛔ Nofaollashtirish' : '✅ Faollashtirish'}
+              ${c.active ? '⛔ O\'chirish' : '✅ Yoqish'}
             </button>
           </div>
         </div>
@@ -233,75 +241,235 @@ const SuperAdmin = {
     } catch (e) { Utils.toast('error', 'Xato', e.message); }
   },
 
-  // ── Foydalanuvchilar & parol tiklash ──────────────────────────────────────
   async openUsers(clinicId, clinicName) {
     let users = [];
     try { users = await API.get(`/super/clinics/${clinicId}/users`); }
-    catch (e) { Utils.toast('error', 'Foydalanuvchilar yuklanmadi', e.message); return; }
+    catch (e) { Utils.toast('error', 'Yuklanmadi', e.message); return; }
 
-    const rows = users.map(u => `
-      <tr>
-        <td>${u.fullName}</td>
-        <td><code>@${u.username}</code></td>
-        <td>${Auth.getRoleLabel(u.role)}</td>
-        <td>
-          <button class="btn btn-secondary btn-sm"
-            onclick="SuperAdmin.openResetPassword('${clinicId}','${u.id}','${u.username}')">
-            🔑 Parol tiklash
-          </button>
-        </td>
-      </tr>
-    `).join('');
+    const roles = { admin: '👑 Rahbar', kassir: '💼 Kassir', receptionist: '📋 Retseptsionist', super_admin: '🔑 Super Admin' };
 
-    Utils.openModal(`
-      <div class="modal-header">
-        <div class="modal-title">👤 ${clinicName} — Foydalanuvchilar</div>
-        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
-      </div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Ism</th><th>Username</th><th>Rol</th><th>Amal</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="4" style="text-align:center">Foydalanuvchi yo\'q</td></tr>'}</tbody>
-        </table>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="Utils.closeModal()">Yopish</button>
-      </div>
-    `, { size: 'modal-lg' });
-  },
-
-  openResetPassword(clinicId, userId, username) {
     Utils.openModal(`
       <div class="modal-header">
         <div>
-          <div class="modal-title">🔑 Parol tiklash</div>
-          <div class="modal-sub"><code>@${username}</code></div>
+          <div class="modal-title">🔑 ${clinicName} — Login va Parollar</div>
+          <div class="modal-sub" style="color:var(--text-muted);font-size:12px">Parolni bo'sh qoldiring — o'zgarmaydi. Logini o'zgartirish ham mumkin.</div>
         </div>
         <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
       </div>
-      <div class="form-group" style="margin:var(--sp-4) 0">
-        <label class="label">Yangi parol (kamida 6 ta belgi)</label>
-        <input class="input" type="password" id="new-pwd" placeholder="Yangi parol..." />
+
+      <div style="display:flex;flex-direction:column;gap:var(--sp-4)">
+        ${users.map((u, i) => `
+          <div style="border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:var(--sp-4);background:var(--bg-secondary)">
+            <!-- User header -->
+            <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)">
+              <div style="width:36px;height:36px;border-radius:50%;background:var(--grad-brand);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0">
+                ${Utils.getInitials(u.fullName)}
+              </div>
+              <div>
+                <div style="font-weight:700">${u.fullName}</div>
+                <div style="font-size:var(--text-xs);color:var(--text-muted)">${roles[u.role] || u.role}</div>
+              </div>
+              <span id="user-save-status-${i}" style="margin-left:auto;font-size:11px"></span>
+            </div>
+
+            <!-- Fields -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)">
+              <div class="form-group" style="margin:0">
+                <label class="label" style="font-size:11px">👤 Login (username)</label>
+                <input class="input" id="user-login-${i}" value="${u.username}"
+                  placeholder="username" style="font-family:var(--font-mono)" />
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="label" style="font-size:11px">🔒 Yangi parol <span style="color:var(--text-muted);font-weight:400">(bo'sh = o'zgarmaydi)</span></label>
+                <div style="position:relative">
+                  <input class="input" type="password" id="user-pwd-${i}"
+                    placeholder="Yangi parol kiriting..."
+                    style="padding-right:40px" />
+                  <button style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px"
+                    onclick="const inp=document.getElementById('user-pwd-${i}');inp.type=inp.type==='password'?'text':'password'"
+                    title="Ko'rsatish/yashirish">👁️</button>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:var(--sp-3);display:flex;align-items:center;gap:var(--sp-2)">
+              <button class="btn btn-secondary btn-sm" id="user-save-btn-${i}"
+                onclick="SuperAdmin.saveUserEdit('${clinicId}','${u.id}',${i},'${u.username}')">
+                💾 Saqlash
+              </button>
+              <span style="font-size:10px;color:var(--text-muted)">Joriy login: <code>@${u.username}</code></span>
+            </div>
+          </div>
+        `).join('')}
       </div>
+
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="Utils.closeModal()">Bekor</button>
-        <button class="btn btn-danger" onclick="SuperAdmin.doResetPassword('${clinicId}','${userId}','${username}')">
-          🔑 Parolni tiklash
-        </button>
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">Yopish</button>
       </div>
-    `);
+    `, { size: 'lg' });
   },
 
-  async doResetPassword(clinicId, userId, username) {
-    const newPassword = document.getElementById('new-pwd')?.value;
-    if (!newPassword || newPassword.length < 6) {
-      Utils.toast('error', 'Xato', 'Kamida 6 ta belgi kiriting'); return;
+  async saveUserEdit(clinicId, userId, idx, oldUsername) {
+    const newLogin = document.getElementById(`user-login-${idx}`)?.value?.trim();
+    const newPwd   = document.getElementById(`user-pwd-${idx}`)?.value;
+    const statusEl = document.getElementById(`user-save-status-${idx}`);
+    const btn      = document.getElementById(`user-save-btn-${idx}`);
+
+    if (!newLogin) { Utils.toast('error', 'Login bo\'sh bo\'lmaydi'); return; }
+    if (newPwd && newPwd.length < 6) { Utils.toast('error', 'Parol kamida 6 ta belgi bo\'lishi kerak'); return; }
+
+    const body = { userId, newLogin: newLogin !== oldUsername ? newLogin : undefined, newPassword: newPwd || undefined };
+    if (!body.newLogin && !body.newPassword) {
+      Utils.toast('info', 'O\'zgarish yo\'q', 'Login yoki parol kiritilmadi'); return;
     }
+
+    if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
     try {
-      await API.post(`/super/clinics/${clinicId}/reset-password`, { userId, newPassword });
-      Utils.toast('success', 'Parol tiklandi', `@${username} uchun yangi parol o'rnatildi`);
-      Utils.closeModal();
-    } catch (e) { Utils.toast('error', 'Xato', e.message); }
+      await API.post(`/super/clinics/${clinicId}/reset-password`, body);
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--brand-success)">✅ Saqlandi</span>';
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Saqlash'; }
+      // Pwd fieldini tozalash
+      const pwdEl = document.getElementById(`user-pwd-${idx}`);
+      if (pwdEl) pwdEl.value = '';
+      Utils.toast('success', 'Saqlandi', newPwd ? 'Login va parol yangilandi' : 'Login yangilandi');
+    } catch (e) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--brand-danger)">❌ ${e.message}</span>`;
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Saqlash'; }
+    }
+  },
+
+  // ── Klinika hisobotini ko'rish (readonly) ──────────────────────────────────
+  async openClinicView(clinicId, clinicName) {
+    let stats = null;
+    try { stats = await API.get(`/super/clinics/${clinicId}/stats`); }
+    catch (e) { Utils.toast('error', 'Yuklanmadi', e.message); return; }
+
+    const { thisMonth, doctors, nurses } = stats;
+    const now = new Date();
+    const monthName = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktyabr','Noyabr','Dekabr'][now.getMonth()];
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">🏥 ${clinicName} — Ko'rish rejimi</div>
+          <div class="modal-sub" style="color:var(--text-muted);font-size:12px">🔒 Faqat ko'rish — o'zgartirish mumkin emas</div>
+        </div>
+        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
+      </div>
+
+      <!-- Bu oy statistika -->
+      <div style="margin-bottom:var(--sp-4)">
+        <div style="font-size:var(--text-sm);font-weight:700;color:var(--text-secondary);margin-bottom:var(--sp-3)">📅 ${monthName} ${now.getFullYear()} — Oylik ko'rsatkichlar</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)">
+          ${[
+            ['💰 Jami tushum', thisMonth.tushum, 'var(--brand-primary)', 'sum'],
+            ['💸 Jami avans', thisMonth.avansTotal, 'var(--brand-warning)', 'sum'],
+            ['📋 Xarajatlar', thisMonth.xarajat, 'var(--brand-danger)', 'sum'],
+            ['📊 Kun soni', thisMonth.days, '#22d3ee', 'count'],
+            ['👨‍⚕️ Vrachlar', doctors.length, 'var(--brand-primary)', 'count'],
+            ['👩‍⚕️ Hamshiralar', nurses.length, '#ec4899', 'count'],
+          ].map(([lbl, val, color, type]) => `
+            <div style="padding:var(--sp-3);border:1px solid ${color}30;border-radius:var(--r-md);background:${color}0d">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">${lbl}</div>
+              <div style="font-family:var(--font-mono);font-weight:800;color:${color};font-size:var(--text-md)">
+                ${type === 'sum' ? Utils.formatMoneyShort(val) : val}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Vrachlar ro'yxati -->
+      <div style="margin-bottom:var(--sp-4)">
+        <div style="font-size:var(--text-sm);font-weight:700;color:var(--text-secondary);margin-bottom:var(--sp-3)">👨‍⚕️ Vrachlar (${doctors.length} ta)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:var(--sp-2)">
+          ${doctors.map(d => `
+            <div style="padding:6px 12px;border-radius:var(--r-md);background:var(--bg-elevated);font-size:12px;border:1px solid var(--border-subtle)">
+              ${d.name} <span style="color:var(--brand-primary);font-family:var(--font-mono)">${d.percent}%</span>
+            </div>`).join('') || '<span style="color:var(--text-muted);font-size:12px">Vrachlar yo\'q</span>'}
+        </div>
+      </div>
+
+      <!-- Hamshiralar -->
+      <div>
+        <div style="font-size:var(--text-sm);font-weight:700;color:var(--text-secondary);margin-bottom:var(--sp-3)">👩‍⚕️ Hamshiralar (${nurses.length} ta)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:var(--sp-2)">
+          ${nurses.map(n => `
+            <div style="padding:6px 12px;border-radius:var(--r-md);background:var(--bg-elevated);font-size:12px;border:1px solid var(--border-subtle)">
+              ${n.name} <span style="color:#ec4899;font-family:var(--font-mono)">${Utils.formatMoneyShort(n.baseSalary)}</span>
+            </div>`).join('') || '<span style="color:var(--text-muted);font-size:12px">Hamshiralar yo\'q</span>'}
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">Yopish</button>
+      </div>
+    `, { size: 'lg' });
+  },
+
+  // ── Filiallar solishtirish ─────────────────────────────────────────────────
+  openCompare() {
+    const clinics = this._clinics;
+    if (!clinics.length) { Utils.toast('info', 'Filiallar yo\'q'); return; }
+
+    const maxReports = Math.max(...clinics.map(c => c.reportCount || 0)) || 1;
+    const maxDoctors = Math.max(...clinics.map(c => c.doctorCount || 0)) || 1;
+
+    const barRow = (label, clinics, getValue, max, color) => `
+      <div style="margin-bottom:var(--sp-5)">
+        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:var(--sp-3);text-transform:uppercase;letter-spacing:.05em">${label}</div>
+        ${clinics.map(c => {
+          const val = getValue(c);
+          const pct = max > 0 ? Math.min(100, (val / max) * 100) : 0;
+          return `
+            <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-2)">
+              <div style="width:120px;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">${c.name}</div>
+              <div style="flex:1;height:22px;background:var(--bg-elevated);border-radius:4px;overflow:hidden">
+                <div style="height:100%;width:${pct.toFixed(1)}%;background:${color};border-radius:4px;display:flex;align-items:center;padding-left:8px;transition:width .3s">
+                  <span style="font-size:10px;font-weight:700;color:white;white-space:nowrap">${typeof val === 'number' && val > 100000 ? Utils.formatMoneyShort(val) : val}</span>
+                </div>
+              </div>
+            </div>`;}).join('')}
+      </div>`;
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <div class="modal-title">📊 Filiallar solishtirish</div>
+        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
+      </div>
+
+      <!-- Jadval solishtirish -->
+      <div class="table-wrap" style="margin-bottom:var(--sp-5)">
+        <table class="table" style="font-size:12px">
+          <thead><tr>
+            <th>Ko'rsatkich</th>
+            ${clinics.map(c => `<th style="text-align:center">${c.name}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${[
+              ['Holati', c => `<span class="badge" style="background:${c.subscription.color}20;color:${c.subscription.color}">${c.subscription.label}</span>`],
+              ['Vrachlar', c => c.doctorCount],
+              ['Hamshiralar', c => c.nurseCount],
+              ['Hisobotlar', c => c.reportCount],
+              ['Foydalanuvchilar', c => c.userCount],
+              ['Oxirgi faollik', c => c.lastReportDate ? Utils.formatDateShort(c.lastReportDate) : '—'],
+            ].map(([label, fn]) => `
+              <tr>
+                <td style="font-weight:600">${label}</td>
+                ${clinics.map(c => `<td style="text-align:center">${fn(c)}</td>`).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Bar chart solishtirish -->
+      ${barRow('Hisobotlar soni', clinics, c => c.reportCount, maxReports, 'var(--brand-primary)')}
+      ${barRow('Vrachlar soni', clinics, c => c.doctorCount, maxDoctors, '#10b981')}
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">Yopish</button>
+      </div>
+    `, { size: 'xl' });
   },
 
   // ── Yangi filial qo'shish ─────────────────────────────────────────────────

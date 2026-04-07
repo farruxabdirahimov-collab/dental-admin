@@ -118,25 +118,88 @@ router.patch('/clinics/:id/subscription', superOnly, async (req, res) => {
 });
 
 // ── POST /api/super/clinics/:id/reset-password ───────────────────────────────
-// Klinika admin parolini tiklash (foydalanuvchi bilmaydi)
+// Login va/yoki parol yangilash
 router.post('/clinics/:id/reset-password', superOnly, async (req, res) => {
   try {
-    const { userId, newPassword } = req.body;
-    if (!userId || !newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: 'userId va kamida 6 ta belgidan iborat newPassword kerak' });
-    }
+    const { userId, newPassword, newLogin } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId kerak' });
+    if (!newPassword && !newLogin) return res.status(400).json({ error: 'newPassword yoki newLogin kerak' });
+    if (newPassword && newPassword.length < 6) return res.status(400).json({ error: 'Parol kamida 6 ta belgi' });
 
-    // Foydalanuvchi shu klinikaga tegishli ekanini tekshirish
     const { rows: uRows } = await pool.query(
       'SELECT id, username, role FROM users WHERE id=$1 AND clinic_id=$2',
       [userId, req.params.id]
     );
     if (!uRows[0]) return res.status(404).json({ error: 'Foydalanuvchi topilmadi' });
 
-    const hash = await bcrypt.hash(newPassword, 10);
-    await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, userId]);
+    const fields = []; const vals = [userId];
 
-    res.json({ ok: true, username: uRows[0].username, role: uRows[0].role });
+    if (newLogin && newLogin !== uRows[0].username) {
+      // Login noyobligini tekshirish
+      const { rows: dup } = await pool.query('SELECT id FROM users WHERE username=$1 AND id!=$2', [newLogin, userId]);
+      if (dup.length) return res.status(409).json({ error: `"${newLogin}" username allaqachon mavjud` });
+      fields.push(`username=$${vals.length + 1}`); vals.push(newLogin);
+    }
+    if (newPassword) {
+      const hash = await bcrypt.hash(newPassword, 10);
+      fields.push(`password_hash=$${vals.length + 1}`); vals.push(hash);
+    }
+
+    if (!fields.length) return res.json({ ok: true, message: 'Hech narsa o\'zgartirilmadi' });
+
+    await pool.query(`UPDATE users SET ${fields.join(',')} WHERE id=$1`, vals);
+    res.json({ ok: true, username: newLogin || uRows[0].username, role: uRows[0].role });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/super/clinics/:id/stats ─────────────────────────────────────────
+// Bu oy statistikasi + vrachlar + hamshiralar — readonly view uchun
+router.get('/clinics/:id/stats', superOnly, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const from = `${year}-${month}-01`;
+    const to   = `${year}-${month}-31`;
+
+    // Bu oy hisobotlar
+    const { rows: reports } = await pool.query(
+      `SELECT data FROM daily_reports WHERE clinic_id=$1 AND date>=$2 AND date<=$3`,
+      [id, from, to]
+    );
+
+    let tushum = 0, avansTotal = 0, xarajat = 0;
+    for (const r of reports) {
+      const d = r.data || {};
+      for (const doc of Object.values(d.doctors || {})) {
+        tushum += Number(doc.tushum) || 0;
+        avansTotal += Number(doc.avans) || 0;
+      }
+      for (const nurse of Object.values(d.nurses || {})) {
+        avansTotal += Number(nurse.avans) || 0;
+      }
+      for (const exp of (d.expenses || [])) {
+        xarajat += Number(exp.amount) || 0;
+      }
+    }
+
+    // Vrachlar
+    const { rows: doctors } = await pool.query(
+      'SELECT name, data FROM doctors WHERE clinic_id=$1 AND deleted=FALSE ORDER BY name',
+      [id]
+    );
+    // Hamshiralar
+    const { rows: nurses } = await pool.query(
+      'SELECT name, data FROM nurses WHERE clinic_id=$1 AND deleted=FALSE ORDER BY name',
+      [id]
+    );
+
+    res.json({
+      thisMonth: { tushum, avansTotal, xarajat, days: reports.length },
+      doctors: doctors.map(d => ({ name: d.name, percent: d.data?.percent || 35 })),
+      nurses:  nurses.map(n => ({ name: n.name, baseSalary: n.data?.baseSalary || 0 })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
