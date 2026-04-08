@@ -17,11 +17,32 @@ const FormulaEngine = {
   // ── DEFAULT QADAMLAR (hech narsa sozlanmagan bo'lsa) ──────────────────────
   DEFAULT_STEPS: [
     {
+      id: 'JTS',
+      label: 'Jami Texnik Summasi',
+      expr: 'texnik',
+      type: 'sum',
+      emoji: '📊'
+    },
+    {
+      id: 'JIS',
+      label: 'Jami Implant Summasi',
+      expr: 'implantCount * implantValue',
+      type: 'formula',
+      emoji: '💎'
+    },
+    {
       id: 'VU',
       label: 'Vrach Ulushi',
-      expr: '(tushum - texnik) * percent / 100 + implantCount * implantValue',
-      type: 'result',
+      expr: '(tushum - JTS) * percent / 100 + JIS',
+      type: 'formula',
       emoji: '💰'
+    },
+    {
+      id: 'JVB',
+      label: 'Jami Vrachga Beriladigan',
+      expr: 'VU + JTS - avans',
+      type: 'result',
+      emoji: '💚'
     }
   ],
 

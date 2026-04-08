@@ -724,16 +724,26 @@ const AdminSettings = {
 
     return `
       <div class="settings-panel-title">💡 Maosh formulasi qadamlari</div>
-      <p style="color:var(--text-muted);font-size:var(--text-sm);margin-bottom:var(--sp-4)">
-        Har bir qadam — bir narsani hisoblaydi. Natija keyingi qadamlarda o'zgaruvchi sifatida ishlatiladi.
-        Oxirgi <strong>Natija</strong> tipidagi qadam — vrachga beriladigan summa hisoblanadi.
-      </p>
+
+      <!-- INFO BANNER -->
+      <div style="display:flex;gap:var(--sp-3);align-items:flex-start;padding:var(--sp-4);background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:var(--r-lg);margin-bottom:var(--sp-4)">
+        <div style="font-size:24px;flex-shrink:0">🏥</div>
+        <div>
+          <div style="font-size:var(--text-sm);font-weight:700;margin-bottom:3px">Har klinika o'z formulasini belgilaydi</div>
+          <div style="font-size:12px;color:var(--text-muted);line-height:1.6">
+            Bu yerda sozlangan qadamlar <strong>oylik hisobotda</strong> (ekranda va chop etishda) ko'rinadi.
+            Har bir qadam — avvalgi qadamlarning natijasidan foydalanishi mumkin.
+            <strong>Natija</strong> tipidagi qadam — vrachga beriladigan yakuniy summa.
+          </div>
+        </div>
+      </div>
 
       <!-- QADAMLAR RO'YXATI -->
       <div id="formula-steps-list" style="display:flex;flex-direction:column;gap:var(--sp-3);margin-bottom:var(--sp-5)">
         ${steps.length ? steps.map((step, i) => this._renderFormulaStepRow(step, i, steps)).join('') : `
           <div style="text-align:center;padding:var(--sp-6);color:var(--text-muted);border:2px dashed var(--border-subtle);border-radius:var(--r-lg)">
-            Hech qanday qadam yo'q — qo'shish uchun pastdagi tugmani bosing
+            <div style="font-size:32px;margin-bottom:var(--sp-2)">📋</div>
+            Hech qanday qadam yo'q — qo'shish uchun pastdagi tugmani bosing yoki <strong>Standartga qaytarish</strong> ni bosing
           </div>`}
       </div>
 

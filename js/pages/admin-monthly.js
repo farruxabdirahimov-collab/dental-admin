@@ -103,13 +103,20 @@ const AdminMonthly = {
       const implantValue = doc.implantValue || 300000;
       const percent      = doc.percent || 35;
 
-      // Formulalar
-      const JTS  = jTexnik;
-      const JIS  = jImplant * implantValue;
-      const VU   = (jTushum - JTS) * (percent / 100) + JIS;
-      const JVB  = VU + JTS - jAvans;
+      // Formulalar — dynamic (klinikaning o'z qadamlari)
+      const stepResults = FormulaEngine.calcSteps(this.clinicId, {
+        tushum: jTushum,
+        texnik: jTexnik,
+        implantCount: jImplant,
+        avans: jAvans,
+        doctor: doc,
+      });
 
-      doctorDetails[doc.id] = { days, jTushum, jTexnik: JTS, jImplant, jAvans, JTS, JIS, VU: Math.max(0, VU), JVB, implantValue, percent };
+      // Yakuniy natija (type='result' bo'lgan oxirgi qadam)
+      const finalStep = stepResults.find(s => s.type === 'result') || stepResults[stepResults.length - 1];
+      const JVB = finalStep ? finalStep.value : 0;
+
+      doctorDetails[doc.id] = { days, jTushum, jTexnik, jImplant, jAvans, stepResults, JVB, implantValue, percent };
     });
 
     return {
@@ -343,25 +350,27 @@ const AdminMonthly = {
         </div>
 
         <!-- Formulalar natijalari -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);padding:var(--sp-4);background:var(--bg-elevated);border-radius:var(--r-lg);">
-          ${this._formulaBox('JTS', 'Jami Texnik', detail.JTS, '#22d3ee', `∑ texnik = ${Utils.formatMoneyShort(detail.JTS)}`)}
-          ${this._formulaBox('JIS', 'Jami Implant', detail.JIS, '#a855f7', `${detail.jImplant} × ${Utils.formatMoneyShort(impVal)}`)}
-          ${this._formulaBox('VU', 'Vrach Ulushi', detail.VU, 'var(--brand-success)', `(${Utils.formatMoneyShort(detail.jTushum)} − ${Utils.formatMoneyShort(detail.JTS)}) × ${pct}% + JIS`)}
-          ${this._formulaBox('JVB', 'Vrachga Beriladi', detail.JVB, detail.JVB>=0?'var(--brand-primary)':'var(--brand-danger)', `VU + JTS − avans = ${Utils.formatMoneyShort(detail.VU)} + ${Utils.formatMoneyShort(detail.JTS)} − ${Utils.formatMoneyShort(detail.jAvans)}`)}
+        <div style="display:grid;grid-template-columns:repeat(${detail.stepResults.length || 4},1fr);gap:var(--sp-3);padding:var(--sp-4);background:var(--bg-elevated);border-radius:var(--r-lg);">
+          ${this._renderStepBoxes(detail.stepResults)}
         </div>
       </div>
     `;
   },
 
-  _formulaBox(short, label, val, color, formula) {
-    const n = Number(val)||0;
-    return `
-      <div style="padding:var(--sp-3);border:1px solid ${color}33;border-radius:var(--r-md);background:${color}0d;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:${color};margin-bottom:var(--sp-1)">${short}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:var(--sp-2)">${label}</div>
-        <div style="font-family:var(--font-mono);font-size:var(--text-md);font-weight:800;color:${color}">${Utils.formatMoneyShort(n)}</div>
-        <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px;line-height:1.4">${formula}</div>
-      </div>`;
+  // Dynamic formula boxes from FormulaEngine.calcSteps()
+  _renderStepBoxes(stepResults) {
+    const typeColors = { sum: '#22d3ee', formula: 'var(--brand-primary)', result: 'var(--brand-success)' };
+    return (stepResults || []).map(s => {
+      const color = typeColors[s.type] || 'var(--brand-primary)';
+      const n = Number(s.value) || 0;
+      return `
+        <div style="padding:var(--sp-3);border:1px solid ${color}33;border-radius:var(--r-md);background:${color}0d;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:${color};margin-bottom:var(--sp-1)">${s.emoji || '📌'} ${s.id}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:var(--sp-2)">${s.label}</div>
+          <div style="font-family:var(--font-mono);font-size:var(--text-md);font-weight:800;color:${color}">${Utils.formatMoneyShort(n)}</div>
+          <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px;line-height:1.4">${s.exprText}</div>
+        </div>`;
+    }).join('');
   },
 
   // 4 — HAMSHIRALAR
@@ -686,27 +695,8 @@ const AdminMonthly = {
           </tfoot>
         </table>
 
-        <div class="print-formula-grid">
-          <div class="print-formula-box">
-            <div class="pfb-label">JTS — Jami Texnik Summasi</div>
-            <div class="pfb-formula">∑ texnik kunlar</div>
-            <div class="pfb-value">${detail.JTS.toLocaleString('ru-RU').replace(/,/g,' ')} so'm</div>
-          </div>
-          <div class="print-formula-box">
-            <div class="pfb-label">JIS — Jami Implant Summasi</div>
-            <div class="pfb-formula">${detail.jImplant} dona × ${detail.implantValue.toLocaleString('ru-RU').replace(/,/g,' ')} so'm</div>
-            <div class="pfb-value">${detail.JIS.toLocaleString('ru-RU').replace(/,/g,' ')} so'm</div>
-          </div>
-          <div class="print-formula-box">
-            <div class="pfb-label">VU — Vrach Ulushi</div>
-            <div class="pfb-formula">(${detail.jTushum.toLocaleString('ru-RU').replace(/,/g,' ')} − ${detail.JTS.toLocaleString('ru-RU').replace(/,/g,' ')}) × ${detail.percent}% + JIS</div>
-            <div class="pfb-value">${detail.VU.toLocaleString('ru-RU').replace(/,/g,' ')} so'm</div>
-          </div>
-          <div class="print-formula-box highlight">
-            <div class="pfb-label">JVB — Jami Vrachga Beriladigan</div>
-            <div class="pfb-formula">VU + JTS − Avans = ${detail.VU.toLocaleString('ru-RU').replace(/,/g,' ')} + ${detail.JTS.toLocaleString('ru-RU').replace(/,/g,' ')} − ${detail.jAvans.toLocaleString('ru-RU').replace(/,/g,' ')}</div>
-            <div class="pfb-value" style="font-size:1.3em">${detail.JVB.toLocaleString('ru-RU').replace(/,/g,' ')} so'm</div>
-          </div>
+        <div class="print-formula-grid" style="grid-template-columns:repeat(${Math.min(detail.stepResults.length || 4, 4)}, 1fr)">
+          ${this._printStepBoxes(detail.stepResults)}
         </div>
 
         <div class="print-signatures">
@@ -727,6 +717,23 @@ const AdminMonthly = {
         <div class="print-date">Sana: ________ / _________ / 2026</div>
       </div>
     `;
+  },
+
+  // Dynamic print formula boxes using FormulaEngine.calcSteps results
+  _printStepBoxes(stepResults) {
+    if (!stepResults || !stepResults.length) return '';
+    return stepResults.map((s, i) => {
+      const isLast = i === stepResults.length - 1;
+      const isResult = s.type === 'result';
+      const highlight = isResult || isLast ? ' highlight' : '';
+      const val = Number(s.value) || 0;
+      return `
+        <div class="print-formula-box${highlight}">
+          <div class="pfb-label">${s.emoji || ''} ${s.id} — ${s.label}</div>
+          <div class="pfb-formula">${s.exprText}</div>
+          <div class="pfb-value"${isResult || isLast ? ' style="font-size:1.3em"' : ''}>${val.toLocaleString('ru-RU').replace(/,/g,' ')} so'm</div>
+        </div>`;
+    }).join('');
   },
 
   _printOverallSection(monthly, settings, nurses, payTypes, clinicName, monthLabel) {
