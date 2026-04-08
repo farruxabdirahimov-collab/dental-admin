@@ -127,6 +127,27 @@ const DB = {
     API.put(`/clinics/${clinicId}/settings`, updates).catch(console.error);
   },
 
+  // ── KUNLIK O'ZGARUVCHILAR (har klinika o'ziniki) ─────────────────────────
+  // ID lar mavjud daily_reports data kalit nomi bilan AYNAN mos bo'lishi kerak
+  DEFAULT_DAILY_VARS: [
+    { id: 'tushum',       label: 'Tushum',       type: 'currency', required: true,  active: true, emoji: '💰' },
+    { id: 'texnik',       label: 'Texnik',        type: 'currency', required: false, active: true, emoji: '🔧' },
+    { id: 'implantCount', label: 'Implant soni',  type: 'number',   required: false, active: true, emoji: '🦷' },
+    { id: 'avans',        label: 'Avans',         type: 'currency', required: true,  active: true, emoji: '💸' },
+  ],
+
+  getDailyVars(clinicId) {
+    const s = this.getSettings(clinicId);
+    if (s.dailyVars && Array.isArray(s.dailyVars) && s.dailyVars.length >= 2) {
+      return s.dailyVars;
+    }
+    return JSON.parse(JSON.stringify(this.DEFAULT_DAILY_VARS));
+  },
+
+  saveDailyVars(clinicId, vars) {
+    this.updateSetting(clinicId, 'dailyVars', vars);
+  },
+
   // ── VRACHLAR ─────────────────────────────────────────────────────────────
   getDoctors(clinicId) { return (this._c.doctors[clinicId] || []).filter(d => !d.deleted); },
   saveDoctor(clinicId, doctor) {

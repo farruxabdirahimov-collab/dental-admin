@@ -16,9 +16,9 @@ const AdminSettings = {
       <div class="page-body">
         <div class="settings-grid">
           <div class="settings-nav">
-            ${['general', 'payment_types', 'expense_cats', 'custom_fields', 'formula_builder', 'users'].map(tab => `
+            ${['general', 'daily_vars', 'payment_types', 'expense_cats', 'formula_builder', 'users'].map(tab => `
               <div class="settings-nav-item ${this.activeTab === tab ? 'active' : ''}" onclick="AdminSettings.switchTab('${tab}')">
-                ${{ general: '🏥 Umumiy', payment_types: '💳 To\'lov turlari', expense_cats: '📂 Xarajat turlari', custom_fields: '🔧 Qo\'shimcha maydonlar', formula_builder: '💡 Maosh formulasi', users: '👤 Foydalanuvchilar' }[tab]}
+                ${{ general: '🏥 Umumiy', daily_vars: '📥 Kunlik maydonlar', payment_types: '💳 To\'lov turlari', expense_cats: '📂 Xarajat turlari', formula_builder: '💡 Maosh formulasi', users: '👤 Foydalanuvchilar' }[tab]}
               </div>
             `).join('')}
           </div>
@@ -35,7 +35,7 @@ const AdminSettings = {
   switchTab(tab) {
     this.activeTab = tab;
     document.querySelectorAll('.settings-nav-item').forEach((el, i) => {
-      el.classList.toggle('active', ['general', 'payment_types', 'expense_cats', 'custom_fields', 'formula_builder', 'users'][i] === tab);
+      el.classList.toggle('active', ['general', 'daily_vars', 'payment_types', 'expense_cats', 'formula_builder', 'users'][i] === tab);
     });
     document.getElementById('settings-panel').innerHTML = this.renderPanel();
   },
@@ -43,9 +43,9 @@ const AdminSettings = {
   renderPanel() {
     switch (this.activeTab) {
       case 'general':          return this.renderGeneral();
+      case 'daily_vars':       return this.renderDailyVars();
       case 'payment_types':    return this.renderPaymentTypes();
       case 'expense_cats':     return this.renderExpenseCats();
-      case 'custom_fields':    return this.renderCustomFields();
       case 'formula_builder':  return this.renderFormulaBuilder();
       case 'users':            return this.renderUsers();
       default: return '';
@@ -703,10 +703,235 @@ const AdminSettings = {
   deleteUser(id, name) { this.confirmDeleteUser(id, name); },
 
   // ================================================================
+  // ================================================================
+  // 📥 KUNLIK O'ZGARUVCHILAR
+  // ================================================================
+
+  renderDailyVars() {
+    const vars = DB.getDailyVars(this.clinicId);
+    const typeLabels = { currency: "💰 So'm", number: '🔢 Raqam', text: '📝 Matn' };
+
+    return `
+      <div class="settings-panel-title">📥 Kunlik kiritish maydonlari</div>
+
+      <div style="display:flex;gap:var(--sp-3);align-items:flex-start;padding:var(--sp-4);background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:var(--r-lg);margin-bottom:var(--sp-5)">
+        <div style="font-size:24px;flex-shrink:0">📋</div>
+        <div>
+          <div style="font-size:var(--text-sm);font-weight:700;margin-bottom:3px">Har klinika o'z maydonlarini belgilaydi</div>
+          <div style="font-size:12px;color:var(--text-muted);line-height:1.6">
+            Bu maydonlar <strong>kunlik kiritishda</strong> har bir vrach uchun ko'rinadi.
+            Formulada ushbu maydon <strong>ID kodlarini</strong> ishlatish mumkin
+            (masalan: <code style="background:rgba(99,102,241,0.1);padding:1px 5px;border-radius:3px">rentgen_soni</code>).
+            <strong>Tushum</strong> va <strong>Avans</strong> o'chirib bo'lmaydi.
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--sp-2);margin-bottom:var(--sp-5)" id="daily-vars-list">
+        ${vars.map((v, i) => this._renderDailyVarRow(v, i)).join('')}
+      </div>
+
+      <div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:var(--sp-5);margin-bottom:var(--sp-5)">
+        <div style="font-size:var(--text-sm);font-weight:700;margin-bottom:var(--sp-4);color:var(--brand-primary)">➕ Yangi maydon qo'shish</div>
+        <div style="display:grid;grid-template-columns:56px 1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Emoji</label>
+            <input class="input" id="new-dv-emoji" value="📌" style="text-align:center;font-size:18px" maxlength="2" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Nom *</label>
+            <input class="input" id="new-dv-label" placeholder="Rentgen soni" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">ID (kodi) *</label>
+            <input class="input" id="new-dv-id" placeholder="rentgen_soni" style="font-family:var(--font-mono)" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Turi</label>
+            <select class="select" id="new-dv-type">
+              <option value="number">🔢 Raqam (soni)</option>
+              <option value="currency">💰 So'm (pul)</option>
+              <option value="text">📝 Matn</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Birlik (ixtiyoriy)</label>
+            <input class="input" id="new-dv-unit" placeholder="ta, dona, sm..." />
+          </div>
+        </div>
+        <button class="btn btn-secondary" onclick="AdminSettings.addDailyVar()">
+          ${Utils.icon('plus', 14)} Qo'shish
+        </button>
+      </div>
+
+      <button class="btn btn-ghost btn-sm" onclick="AdminSettings._resetDailyVarsToDefault()"
+        style="color:var(--brand-warning)">
+        🔄 Standartga qaytarish
+      </button>
+    `;
+  },
+
+  _renderDailyVarRow(v, i) {
+    const typeColors = { currency: 'var(--brand-success)', number: '#22d3ee', text: 'var(--brand-primary)' };
+    const typeLabels = { currency: "💰 So'm", number: '🔢 Raqam', text: '📝 Matn' };
+    const color = typeColors[v.type] || 'var(--text-muted)';
+    return `
+      <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
+        background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:var(--r-lg);
+        border-left:3px solid ${v.active ? color : 'var(--border-subtle)'};opacity:${v.active ? 1 : 0.55}">
+        <div style="font-size:22px;width:32px;text-align:center;flex-shrink:0">${v.emoji || '📌'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap">
+            <code style="font-size:12px;font-weight:800;color:${color};background:${color}18;padding:2px 8px;border-radius:4px">${v.id}</code>
+            <span style="font-size:var(--text-sm);font-weight:600">${v.label}</span>
+            <span style="font-size:11px;padding:1px 8px;border-radius:12px;background:${color}18;color:${color}">${typeLabels[v.type] || v.type}</span>
+            ${v.required ? '<span style="font-size:10px;color:var(--brand-warning)">⚠️ Majburiy</span>' : ''}
+            ${v.unit ? `<span style="font-size:11px;color:var(--text-muted)">${v.unit}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--sp-2);flex-shrink:0;align-items:center">
+          ${!v.required ? `
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:var(--text-muted);white-space:nowrap">
+              <input type="checkbox" ${v.active ? 'checked' : ''}
+                onchange="AdminSettings._toggleDailyVar(${i}, this.checked)"
+                style="accent-color:var(--brand-primary)"> Faol
+            </label>` : ''}
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="AdminSettings._editDailyVar(${i})" title="Tahrirlash">
+            ${Utils.icon('edit', 14)}
+          </button>
+          ${!v.required ? `
+            <button class="btn btn-danger btn-sm btn-icon" onclick="AdminSettings._deleteDailyVar(${i})" title="O'chirish">
+              ${Utils.icon('trash', 14)}
+            </button>` : '<div style="width:32px"></div>'}
+        </div>
+      </div>`;
+  },
+
+  addDailyVar() {
+    const label = document.getElementById('new-dv-label')?.value?.trim();
+    const rawId = document.getElementById('new-dv-id')?.value?.trim();
+    const id    = rawId.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const type  = document.getElementById('new-dv-type')?.value || 'number';
+    const emoji = document.getElementById('new-dv-emoji')?.value?.trim() || '📌';
+    const unit  = document.getElementById('new-dv-unit')?.value?.trim() || '';
+
+    if (!label) { Utils.toast('error', 'Nom kiriting'); return; }
+    if (!id)    { Utils.toast('error', 'ID (kodi) kiriting'); return; }
+
+    const vars = DB.getDailyVars(this.clinicId);
+    if (vars.find(v => v.id === id)) { Utils.toast('error', `"${id}" ID allaqachon mavjud`); return; }
+
+    vars.push({ id, label, type, emoji, unit, required: false, active: true });
+    DB.saveDailyVars(this.clinicId, vars);
+    Utils.toast('success', `✅ "${label}" maydon qo'shildi`);
+    this.activeTab = 'daily_vars';
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+
+    // Formula builder uchun ham hint yangilash
+    setTimeout(() => {
+      const hint = document.getElementById('daily-vars-hint');
+      if (hint) hint.innerHTML = this._buildVarsHint();
+    }, 100);
+  },
+
+  _toggleDailyVar(idx, active) {
+    const vars = DB.getDailyVars(this.clinicId);
+    if (vars[idx]) {
+      vars[idx].active = active;
+      DB.saveDailyVars(this.clinicId, vars);
+    }
+  },
+
+  _deleteDailyVar(idx) {
+    const vars = DB.getDailyVars(this.clinicId);
+    if (vars[idx]?.required) { Utils.toast('error', "Majburiy maydonni o'chirib bo'lmaydi"); return; }
+    if (!confirm(`"${vars[idx]?.label}" maydonini o'chirasizmi?`)) return;
+    vars.splice(idx, 1);
+    DB.saveDailyVars(this.clinicId, vars);
+    this.activeTab = 'daily_vars';
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+  },
+
+  _editDailyVar(idx) {
+    const vars = DB.getDailyVars(this.clinicId);
+    const v = vars[idx];
+    if (!v) return;
+    Utils.openModal(`
+      <div class="modal-header">
+        <div class="modal-title">✏️ Maydonni tahrirlash</div>
+        <button class="modal-close" onclick="Utils.closeModal()">${Utils.icon('x')}</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--sp-4)">
+        <div style="display:grid;grid-template-columns:56px 1fr;gap:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">Emoji</label>
+            <input class="input" id="edit-dv-emoji" value="${v.emoji || '📌'}" style="text-align:center;font-size:18px" maxlength="2" />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Nom *</label>
+            <input class="input" id="edit-dv-label" value="${v.label}" />
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)">
+          <div class="form-group" style="margin:0">
+            <label class="label">ID${v.required ? ' — o\'zgarmas' : ''}</label>
+            <input class="input" id="edit-dv-id" value="${v.id}" ${v.required ? 'readonly style="opacity:0.6;font-family:var(--font-mono)"' : 'style="font-family:var(--font-mono)"'} />
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="label">Turi${v.required ? ' — o\'zgarmas' : ''}</label>
+            <select class="select" id="edit-dv-type" ${v.required ? 'disabled' : ''}>
+              <option value="number"   ${v.type==='number'  ?'selected':''}>🔢 Raqam</option>
+              <option value="currency" ${v.type==='currency'?'selected':''}>💰 So'm</option>
+              <option value="text"     ${v.type==='text'    ?'selected':''}>📝 Matn</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="label">Birlik (ixtiyoriy)</label>
+          <input class="input" id="edit-dv-unit" value="${v.unit || ''}" placeholder="ta, dona, sm..." />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">Bekor</button>
+        <button class="btn btn-primary" onclick="AdminSettings._saveEditDailyVar(${idx})">${Utils.icon('save',14)} Saqlash</button>
+      </div>
+    `);
+  },
+
+  _saveEditDailyVar(idx) {
+    const vars = DB.getDailyVars(this.clinicId);
+    const v = vars[idx];
+    if (!v) return;
+    const newLabel = document.getElementById('edit-dv-label')?.value?.trim();
+    const newEmoji = document.getElementById('edit-dv-emoji')?.value?.trim() || '📌';
+    const newUnit  = document.getElementById('edit-dv-unit')?.value?.trim() || '';
+    const newId    = v.required ? v.id : (document.getElementById('edit-dv-id')?.value?.trim().toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'') || v.id);
+    const newType  = v.required ? v.type : (document.getElementById('edit-dv-type')?.value || v.type);
+    if (!newLabel) { Utils.toast('error', "Nom bo'sh bo'lmasin"); return; }
+    vars[idx] = { ...v, label: newLabel, emoji: newEmoji, unit: newUnit, id: newId, type: newType };
+    DB.saveDailyVars(this.clinicId, vars);
+    Utils.closeModal();
+    Utils.toast('success', 'Yangilandi');
+    this.activeTab = 'daily_vars';
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+  },
+
+  _resetDailyVarsToDefault() {
+    if (!confirm("Standart maydonlarga qaytarasizmi? (tushum, texnik, implant, avans)")) return;
+    DB.saveDailyVars(this.clinicId, JSON.parse(JSON.stringify(DB.DEFAULT_DAILY_VARS)));
+    Utils.toast('success', 'Standartga qaytarildi');
+    this.activeTab = 'daily_vars';
+    document.getElementById('settings-panel').innerHTML = this.renderPanel();
+  },
+
+  // ================================================================
   // 💡 MAOSH FORMULASI BUILDER
   // ================================================================
 
   renderFormulaBuilder() {
+
     const steps = FormulaEngine.getSteps(this.clinicId);
     const baseVars = FormulaEngine.getAvailableVars();
     const stepIds  = steps.map(s => s.id);

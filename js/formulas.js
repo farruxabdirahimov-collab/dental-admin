@@ -122,6 +122,14 @@ const FormulaEngine = {
       avans:        Number(totals.avans)         || 0,
     };
 
+    // Dinamik o'zgaruvchilar — totals dagi barcha qo'shimcha kalitlar (rentgen_soni, vinir, ...)
+    Object.entries(totals).forEach(([k, v]) => {
+      if (k !== 'doctor' && !(k in vars)) {
+        const n = Number(v);
+        if (!isNaN(n)) vars[k] = n;
+      }
+    });
+
     const result = [];
 
     for (const step of steps) {

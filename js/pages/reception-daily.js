@@ -14,10 +14,11 @@ const ReceptionDaily = {
   clinicId: null,
   doctors: [],
   nurses: [],
-  paymentTypes: [],       // faqat naqt bo'lmagan turlar
+  paymentTypes: [],
   expenseCategories: [],
   settings: {},
-  customFields: [],       // target=doctor bo'lgan qo'shimcha maydonlar
+  dailyVars: [],          // klinikaning kunlik o'zgaruvchilari (dynamic)
+  customFields: [],       // legacy (eski ma'lumotlar uchun)
 
   // Naqt bo'lmagan to'lov turlari (kassadan ayiriladi)
   NON_CASH_IDS: ['terminal', 'qr', 'inkassa', 'prechesleniya', 'p2p'],
@@ -35,8 +36,7 @@ const ReceptionDaily = {
     this.paymentTypes = DB.getPaymentTypes(this.clinicId).filter(p => p.active && p.id !== 'naqd');
     this.expenseCategories = DB.getExpenseCategories(this.clinicId);
     this.settings = DB.getSettings(this.clinicId);
-    // Vrach satrlari uchun qo'shimcha maydonlar
-    this.customFields = DB.getCustomFields(this.clinicId).filter(f => f.target === 'doctor');
+    this.dailyVars = DB.getDailyVars(this.clinicId).filter(v => v.active);
 
     const content = `
       ${Components.renderPageHeader(
@@ -232,12 +232,35 @@ const ReceptionDaily = {
   },
 
   renderDoctorRows() {
-    const implantLabel = this.settings.implantLabel || 'Implant';
-    const showImplant  = this.settings.showImplant !== false;
-
     return this.doctors.map(doc => {
       const entry = (this.report.doctors || {})[doc.id] || {};
-      const cfVals = entry.customFields || {};
+      const hasData = this.dailyVars.some(v => entry[v.id]);
+
+      const varInputs = this.dailyVars.map(v => {
+        const val = entry[v.id] ?? '';
+        const inputId = `doc-var-${v.id}-${doc.id}`;
+        let inputEl;
+        if (v.type === 'currency') {
+          inputEl = `<div class="input-prefix-wrap">
+            <span class="input-prefix" style="font-size:10px">${v.unit || "so'm"}</span>
+            <input class="input ${v.id === 'tushum' ? 'doctor-tushum' : ''}" type="number" min="0" step="1000"
+              id="${inputId}" data-var="${v.id}" data-docid="${doc.id}"
+              value="${val}" placeholder="0" oninput="ReceptionDaily.updateTotals()" />
+          </div>`;
+        } else if (v.type === 'number') {
+          inputEl = `<input class="input" type="number" min="0" step="1"
+            id="${inputId}" data-var="${v.id}" data-docid="${doc.id}"
+            value="${val}" placeholder="0" oninput="ReceptionDaily.updateTotals()" />`;
+        } else {
+          inputEl = `<input class="input" type="text"
+            id="${inputId}" data-var="${v.id}" data-docid="${doc.id}"
+            value="${val}" placeholder="..." />`;
+        }
+        return `<div class="form-group">
+          <label class="label">${v.emoji || '📌'} ${v.label}${v.unit && v.type !== 'currency' ? ' (' + v.unit + ')' : ''}</label>
+          ${inputEl}
+        </div>`;
+      }).join('');
 
       return `
         <div class="doctor-daily-card" id="doc-card-${doc.id}">
@@ -252,67 +275,9 @@ const ReceptionDaily = {
             </span>
             <span class="history-expand-icon" id="expand-${doc.id}">${Utils.icon('chevron_down')}</span>
           </div>
-          <div class="doctor-daily-body" id="doc-body-${doc.id}" style="${entry.tushum || entry.texnik ? '' : 'display:none'}">
+          <div class="doctor-daily-body" id="doc-body-${doc.id}" style="${hasData ? '' : 'display:none'}">
             <div class="doctor-daily-inputs">
-              <div class="form-group">
-                <label class="label">💰 Tushum</label>
-                <div class="input-prefix-wrap">
-                  <span class="input-prefix" style="font-size:10px">so'm</span>
-                  <input class="input doctor-tushum" type="number" min="0" step="1000"
-                    id="doc-tushum-${doc.id}"
-                    value="${entry.tushum || ''}" placeholder="0"
-                    oninput="ReceptionDaily.updateTotals()" />
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="label">🔧 Texnik</label>
-                <div class="input-prefix-wrap">
-                  <span class="input-prefix" style="font-size:10px">so'm</span>
-                  <input class="input" type="number" min="0" step="1000"
-                    id="doc-texnik-${doc.id}"
-                    value="${entry.texnik || ''}" placeholder="0"
-                    oninput="ReceptionDaily.updateTotals()" />
-                </div>
-              </div>
-              ${showImplant ? `
-              <div class="form-group">
-                <label class="label">🦷 ${implantLabel} soni</label>
-                <input class="input" type="number" min="0"
-                  id="doc-implant-count-${doc.id}"
-                  value="${entry.implantCount || ''}" placeholder="0"
-                  oninput="ReceptionDaily.updateTotals()" />
-              </div>` : ''}
-              <div class="form-group">
-                <label class="label">💸 Avans oldi</label>
-                <div class="input-prefix-wrap">
-                  <span class="input-prefix" style="font-size:10px">so'm</span>
-                  <input class="input" type="number" min="0" step="1000"
-                    id="doc-avans-${doc.id}"
-                    value="${entry.avans || ''}" placeholder="0"
-                    oninput="ReceptionDaily.updateTotals()" />
-                </div>
-              </div>
-              ${this.customFields.map(cf => `
-              <div class="form-group">
-                <label class="label" style="color:var(--brand-primary)">
-                  ${cf.type === 'currency' ? '💳' : cf.type === 'number' ? '🔢' : '📝'} ${cf.name}
-                </label>
-                ${cf.type === 'currency' ? `
-                  <div class="input-prefix-wrap">
-                    <span class="input-prefix" style="font-size:10px">so'm</span>
-                    <input class="input" type="number" min="0" step="1000"
-                      id="doc-cf-${cf.id}-${doc.id}"
-                      value="${cfVals[cf.id] || ''}" placeholder="0"
-                      oninput="ReceptionDaily.updateTotals()" />
-                  </div>` : cf.type === 'number' ? `
-                  <input class="input" type="number" min="0"
-                    id="doc-cf-${cf.id}-${doc.id}"
-                    value="${cfVals[cf.id] || ''}" placeholder="0"
-                    oninput="ReceptionDaily.updateTotals()" />` : `
-                  <input class="input" type="text"
-                    id="doc-cf-${cf.id}-${doc.id}"
-                    value="${cfVals[cf.id] || ''}" placeholder="..." />`}
-              </div>`).join('')}
+              ${varInputs}
             </div>
           </div>
         </div>
@@ -382,13 +347,24 @@ const ReceptionDaily = {
 
   // ========== ASOSIY HISOBLASH ==========
   _calcTotals() {
-    // 1. Vrachlar tushumi va avanslari
+    // 1. Vrachlar totallari — dynamic vars
     let jami_tushum = 0, jami_avans = 0, jami_texnik = 0;
+    const varSums = {};
+    this.dailyVars.forEach(v => { varSums[v.id] = 0; });
+
     this.doctors.forEach(doc => {
-      jami_tushum += Utils.num(document.getElementById(`doc-tushum-${doc.id}`)?.value);
-      jami_avans  += Utils.num(document.getElementById(`doc-avans-${doc.id}`)?.value);
-      jami_texnik += Utils.num(document.getElementById(`doc-texnik-${doc.id}`)?.value);
+      this.dailyVars.forEach(v => {
+        const el = document.getElementById(`doc-var-${v.id}-${doc.id}`);
+        if (el && v.type !== 'text') {
+          const val = Utils.num(el.value);
+          varSums[v.id] = (varSums[v.id] || 0) + val;
+        }
+      });
     });
+
+    jami_tushum = varSums['tushum'] || 0;
+    jami_avans  = varSums['avans']  || 0;
+    jami_texnik = varSums['texnik'] || 0;
 
     // Hamshiralar avansi
     let hamshira_avans = 0;
@@ -397,7 +373,7 @@ const ReceptionDaily = {
     });
     const umumiy_avans = jami_avans + hamshira_avans;
 
-    // 2. Naqt bo'lmagan to'lovlar (hammasi)
+    // 2. Naqt bo'lmagan to'lovlar
     const nonCash = {};
     let nonCash_total = 0;
     this.paymentTypes.forEach(pt => {
@@ -406,29 +382,21 @@ const ReceptionDaily = {
       nonCash_total += val;
     });
 
-    // 3. Kassadagi naqt pul = Jami tushum - barcha naqt bo'lmagan to'lovlar
     const kassa_naqd = jami_tushum - nonCash_total;
 
-    // 4. Xarajatlar
+    // 3. Xarajatlar
     let jami_xarajat = 0;
     (this.report.expenses || []).forEach((exp, i) => {
       jami_xarajat += Utils.num(document.getElementById(`exp-amount-${i}`)?.value);
     });
 
-    // 5. BERILISHI KERAK = Kassadagi naqt pul − (Avans vrachlar + Avans hamshiralar + Xarajatlar)
     const berilishi_kerak = kassa_naqd - umumiy_avans - jami_xarajat;
 
     return {
-      jami_tushum,
-      jami_avans,
-      hamshira_avans,
-      umumiy_avans,
-      jami_texnik,
-      nonCash,
-      nonCash_total,
-      kassa_naqd,
-      jami_xarajat,
-      berilishi_kerak
+      jami_tushum, jami_avans, hamshira_avans, umumiy_avans,
+      jami_texnik, varSums,
+      nonCash, nonCash_total, kassa_naqd,
+      jami_xarajat, berilishi_kerak
     };
   },
 
@@ -679,25 +647,19 @@ const ReceptionDaily = {
       if (val) payments[pt.id] = val;
     });
 
-    // Vrachlar
+    // Vrachlar — dynamic vars
     const doctors = {};
     this.doctors.forEach(doc => {
-      const tushum = Utils.num(document.getElementById(`doc-tushum-${doc.id}`)?.value);
-      const texnik = Utils.num(document.getElementById(`doc-texnik-${doc.id}`)?.value);
-      const implantCount = Utils.num(document.getElementById(`doc-implant-count-${doc.id}`)?.value);
-      const avans = Utils.num(document.getElementById(`doc-avans-${doc.id}`)?.value);
-      // Qo'shimcha maydonlar
-      const customFields = {};
-      this.customFields.forEach(cf => {
-        const el = document.getElementById(`doc-cf-${cf.id}-${doc.id}`);
+      const docEntry = {};
+      let hasData = false;
+      this.dailyVars.forEach(v => {
+        const el = document.getElementById(`doc-var-${v.id}-${doc.id}`);
         if (el) {
-          const val = cf.type === 'text' ? el.value : Utils.num(el.value);
-          if (val) customFields[cf.id] = val;
+          const val = v.type === 'text' ? el.value.trim() : Utils.num(el.value);
+          if (val !== '' && val !== 0) { docEntry[v.id] = val; hasData = true; }
         }
       });
-      if (tushum || texnik || implantCount || avans || Object.keys(customFields).length) {
-        doctors[doc.id] = { tushum, texnik, implantCount, avans, customFields };
-      }
+      if (hasData) doctors[doc.id] = docEntry;
     });
 
     // Hamshiralar

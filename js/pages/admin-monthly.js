@@ -73,55 +73,50 @@ const AdminMonthly = {
       FormulaEngine.calcMonthlyTotal(this.clinicId, this.year, this.month),
       DB.getMonthlyReports(this.clinicId, this.year, this.month),
     ]);
-    const doctors  = DB.getDoctors(this.clinicId);
-    const nurses   = DB.getNurses(this.clinicId);
-    const settings = DB.getSettings(this.clinicId);
-    const payTypes = DB.getPaymentTypes(this.clinicId).filter(p => p.active && p.id !== 'naqd');
+    const doctors   = DB.getDoctors(this.clinicId);
+    const nurses    = DB.getNurses(this.clinicId);
+    const settings  = DB.getSettings(this.clinicId);
+    const payTypes  = DB.getPaymentTypes(this.clinicId).filter(p => p.active && p.id !== 'naqd');
+    const activeVars = DB.getDailyVars(this.clinicId).filter(v => v.active);
 
-    // Har bir doktor uchun kunlik batafsil + oylik jami
     const doctorDetails = {};
     doctors.forEach(doc => {
       const days = [];
-      let jTushum = 0, jTexnik = 0, jImplant = 0, jAvans = 0;
+      const varTotals = {};
+      activeVars.forEach(v => { varTotals[v.id] = 0; });
 
       reports.forEach(r => {
         const e = (r.doctors || {})[doc.id] || {};
-        const t = Number(e.tushum) || 0;
-        const tx = Number(e.texnik) || 0;
-        const imp = Number(e.implantCount) || 0;
-        const av = Number(e.avans) || 0;
-
-        if (t || tx || imp || av) {
-          days.push({ date: r.date, tushum: t, texnik: tx, implant: imp, avans: av });
-          jTushum  += t;
-          jTexnik  += tx;
-          jImplant += imp;
-          jAvans   += av;
-        }
+        const dayEntry = { date: r.date };
+        let hasData = false;
+        activeVars.forEach(v => {
+          const val = Number(e[v.id]) || 0;
+          dayEntry[v.id] = val;
+          varTotals[v.id] = (varTotals[v.id] || 0) + val;
+          if (val) hasData = true;
+        });
+        if (hasData) days.push(dayEntry);
       });
 
-      const implantValue = doc.implantValue || 300000;
-      const percent      = doc.percent || 35;
-
-      // Formulalar — dynamic (klinikaning o'z qadamlari)
+      // FormulaEngine ga barcha var totals uzatiladi
       const stepResults = FormulaEngine.calcSteps(this.clinicId, {
-        tushum: jTushum,
-        texnik: jTexnik,
-        implantCount: jImplant,
-        avans: jAvans,
+        ...varTotals,
         doctor: doc,
       });
 
-      // Yakuniy natija (type='result' bo'lgan oxirgi qadam)
       const finalStep = stepResults.find(s => s.type === 'result') || stepResults[stepResults.length - 1];
       const JVB = finalStep ? finalStep.value : 0;
 
-      doctorDetails[doc.id] = { days, jTushum, jTexnik, jImplant, jAvans, stepResults, JVB, implantValue, percent };
+      doctorDetails[doc.id] = {
+        days, varTotals, activeVars, stepResults, JVB,
+        implantValue: doc.implantValue || 300000,
+        percent: doc.percent || 35,
+      };
     });
 
     return {
       year: this.year, month: this.month,
-      monthly, reports, doctors, nurses, settings, payTypes, doctorDetails
+      monthly, reports, doctors, nurses, settings, payTypes, doctorDetails, activeVars
     };
   },
 
@@ -282,7 +277,7 @@ const AdminMonthly = {
   },
 
   _renderOneDoctorTable(doc, detail) {
-    if (!detail || (!detail.jTushum && !detail.jImplant && !detail.jTexnik)) {
+    if (!detail || !detail.days || detail.days.length === 0) {
       return `
         <div class="card" style="opacity:0.5">
           <div class="card-header">
@@ -295,22 +290,34 @@ const AdminMonthly = {
         </div>`;
     }
 
-    const dayRows = detail.days.map(day => `
-      <tr>
-        <td style="white-space:nowrap">${Utils.formatDateShort(day.date)}</td>
-        <td class="right mono">${day.tushum ? day.tushum.toLocaleString('ru-RU').replace(/,/g,' ') : '—'}</td>
-        <td class="right mono" style="color:#22d3ee">${day.texnik ? day.texnik.toLocaleString('ru-RU').replace(/,/g,' ') : '—'}</td>
-        <td class="right">${day.implant || '—'}</td>
-        <td class="right mono" style="color:var(--brand-warning)">${day.avans ? day.avans.toLocaleString('ru-RU').replace(/,/g,' ') : '—'}</td>
-      </tr>
-    `).join('');
-
+    const avs = detail.activeVars || [];
     const pct = detail.percent;
     const impVal = detail.implantValue;
 
+    const dayRows = detail.days.map(day => {
+      const cells = avs.map(v => {
+        const val = day[v.id] || 0;
+        const color = v.id === 'avans' ? 'var(--brand-warning)' :
+                      v.id === 'tushum' ? '' : '#22d3ee';
+        const fmt = v.type === 'number' ? (val || '—') :
+                    (val ? val.toLocaleString('ru-RU').replace(/,/g,' ') : '—');
+        return `<td class="right${v.type !== 'number' ? ' mono' : ''}"${color ? ` style="color:${color}"` : ''}>${fmt}</td>`;
+      }).join('');
+      return `<tr><td style="white-space:nowrap">${Utils.formatDateShort(day.date)}</td>${cells}</tr>`;
+    }).join('');
+
+    const headerCells = avs.map(v => `<th class="right">${v.label}</th>`).join('');
+    const footerCells = avs.map(v => {
+      const total = detail.varTotals[v.id] || 0;
+      const color = v.id === 'avans' ? 'var(--brand-warning)' :
+                    v.id === 'tushum' ? 'var(--brand-primary)' : '#22d3ee';
+      const fmt = v.type === 'number' ? total :
+                  total.toLocaleString('ru-RU').replace(/,/g,' ');
+      return `<td class="right mono" style="color:${color};font-weight:700">${fmt}</td>`;
+    }).join('');
+
     return `
       <div class="card doctor-monthly-card" data-docid="${doc.id}">
-        <!-- Header -->
         <div class="card-header" style="padding-bottom:var(--sp-4);border-bottom:1px solid var(--border-color);margin-bottom:var(--sp-4)">
           <div style="display:flex;align-items:center;gap:var(--sp-3)">
             <div class="doctor-avatar" style="background:${doc.color||'var(--grad-brand)'}; width:40px; height:40px; font-size:14px">${Utils.getInitials(doc.name)}</div>
@@ -324,32 +331,18 @@ const AdminMonthly = {
           </div>
         </div>
 
-        <!-- Kunlik jadval -->
         <div class="table-wrap" style="margin-bottom:var(--sp-4)">
           <table class="table" style="font-size:var(--text-sm)">
-            <thead>
-              <tr>
-                <th>Sana</th>
-                <th class="right">Tushum</th>
-                <th class="right">Texnik</th>
-                <th class="right">Implant</th>
-                <th class="right">Avans</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Sana</th>${headerCells}</tr></thead>
             <tbody>${dayRows}</tbody>
             <tfoot>
               <tr style="background:rgba(99,102,241,0.06)">
-                <td><strong>JAMI</strong></td>
-                <td class="right mono" style="font-weight:700;color:var(--brand-primary)">${detail.jTushum.toLocaleString('ru-RU').replace(/,/g,' ')}</td>
-                <td class="right mono" style="color:#22d3ee">${detail.jTexnik.toLocaleString('ru-RU').replace(/,/g,' ')}</td>
-                <td class="right" style="font-weight:700">${detail.jImplant}</td>
-                <td class="right mono" style="color:var(--brand-warning)">${detail.jAvans.toLocaleString('ru-RU').replace(/,/g,' ')}</td>
+                <td><strong>JAMI</strong></td>${footerCells}
               </tr>
             </tfoot>
           </table>
         </div>
 
-        <!-- Formulalar natijalari -->
         <div style="display:grid;grid-template-columns:repeat(${detail.stepResults.length || 4},1fr);gap:var(--sp-3);padding:var(--sp-4);background:var(--bg-elevated);border-radius:var(--r-lg);">
           ${this._renderStepBoxes(detail.stepResults)}
         </div>
