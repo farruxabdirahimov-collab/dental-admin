@@ -627,7 +627,7 @@ const AdminMonthly = {
 
     const doctorPrintSections = doctors.map(doc => {
       const detail = doctorDetails[doc.id];
-      if (!detail || (!detail.jTushum && !detail.jImplant)) return '';
+      if (!detail || !detail.days || detail.days.length === 0) return '';
       return this._printDoctorSection(doc, detail, clinicName, monthLabel);
     }).filter(Boolean).join('<div style="page-break-after:always"></div>');
 
@@ -646,49 +646,47 @@ const AdminMonthly = {
   },
 
   _printDoctorSection(doc, detail, clinicName, monthLabel) {
-    const dayRows = detail.days.map((d, i) => `
-      <tr>
-        <td>${i+1}</td>
-        <td>${Utils.formatDateShort(d.date)}</td>
-        <td style="text-align:right">${d.tushum ? d.tushum.toLocaleString('ru-RU').replace(/,/g,' ') : '—'}</td>
-        <td style="text-align:right">${d.texnik ? d.texnik.toLocaleString('ru-RU').replace(/,/g,' ') : '—'}</td>
-        <td style="text-align:right">${d.implant || '—'}</td>
-        <td style="text-align:right">${d.avans ? d.avans.toLocaleString('ru-RU').replace(/,/g,' ') : '—'}</td>
-      </tr>
-    `).join('');
+    const avs = detail.activeVars || [];
+    const varTotals = detail.varTotals || {};
+
+    const headerCells = avs.map(v => `<th style="text-align:right">${v.label}${v.unit && v.type !== 'currency' ? ' ('+v.unit+')' : ''}</th>`).join('');
+
+    const dayRows = detail.days.map((d, i) => {
+      const cells = avs.map(v => {
+        const val = d[v.id] || 0;
+        const fmt = v.type === 'number'
+          ? (val || '—')
+          : (val ? val.toLocaleString('ru-RU').replace(/,/g,' ') : '—');
+        return `<td style="text-align:right">${fmt}</td>`;
+      }).join('');
+      return `<tr><td>${i+1}</td><td>${Utils.formatDateShort(d.date)}</td>${cells}</tr>`;
+    }).join('');
+
+    const footerCells = avs.map(v => {
+      const total = varTotals[v.id] || 0;
+      const fmt = v.type === 'number'
+        ? total
+        : total.toLocaleString('ru-RU').replace(/,/g,' ');
+      return `<td style="text-align:right"><strong>${fmt}</strong></td>`;
+    }).join('');
 
     return `
       <div class="print-section">
         <div class="print-clinic">${clinicName}</div>
         <h2 class="print-title">${doc.name} — ${monthLabel} oy hisobi</h2>
-        <p class="print-subtitle">Foiz: ${detail.percent}% · Implant narxi: ${detail.implantValue.toLocaleString('ru-RU').replace(/,/g,' ')} so'm/ta</p>
+        <p class="print-subtitle">Foiz: ${detail.percent}%</p>
 
         <table class="print-table">
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Sana</th>
-              <th>Tushum</th>
-              <th>Texnik</th>
-              <th>Implant (soni)</th>
-              <th>Avans</th>
-            </tr>
+            <tr><th>#</th><th>Sana</th>${headerCells}</tr>
           </thead>
-          <tbody>
-            ${dayRows}
-          </tbody>
+          <tbody>${dayRows}</tbody>
           <tfoot>
-            <tr class="total-row">
-              <td colspan="2"><strong>JAMI</strong></td>
-              <td style="text-align:right"><strong>${detail.jTushum.toLocaleString('ru-RU').replace(/,/g,' ')}</strong></td>
-              <td style="text-align:right"><strong>${detail.jTexnik.toLocaleString('ru-RU').replace(/,/g,' ')}</strong></td>
-              <td style="text-align:right"><strong>${detail.jImplant}</strong></td>
-              <td style="text-align:right"><strong>${detail.jAvans.toLocaleString('ru-RU').replace(/,/g,' ')}</strong></td>
-            </tr>
+            <tr class="total-row"><td colspan="2"><strong>JAMI</strong></td>${footerCells}</tr>
           </tfoot>
         </table>
 
-        <div class="print-formula-grid" style="grid-template-columns:repeat(${Math.min(detail.stepResults.length || 4, 4)}, 1fr)">
+        <div class="print-formula-grid" style="grid-template-columns:repeat(${Math.min(detail.stepResults.length || 2, 4)}, 1fr)">
           ${this._printStepBoxes(detail.stepResults)}
         </div>
 
@@ -707,7 +705,7 @@ const AdminMonthly = {
           </div>
         </div>
 
-        <div class="print-date">Sana: ________ / _________ / 2026</div>
+        <div class="print-date">Sana: ________ / _________ / ${new Date().getFullYear()}</div>
       </div>
     `;
   },

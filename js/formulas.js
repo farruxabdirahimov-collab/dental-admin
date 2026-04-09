@@ -255,16 +255,34 @@ const FormulaEngine = {
   },
 
   // ── MAVJUD O'ZGARUVCHILAR RO'YXATI ────────────────────────────────────────
-  getAvailableVars() {
-    return [
-      { key: 'tushum',       label: 'Tushum',         desc: 'Kunlik umumiy tushum' },
-      { key: 'texnik',       label: 'Texnik',          desc: 'Texnik ishlar summasi' },
-      { key: 'implantCount', label: 'Implant soni',    desc: 'Implant miqdori' },
-      { key: 'implantValue', label: 'Implant qiymati', desc: 'Bir implant uchun qiymat' },
-      { key: 'percent',      label: 'Foiz (%)',        desc: 'Vrach ulushi foizi' },
-      { key: 'avans',        label: 'Avans',           desc: 'Olingan avans' },
-    ];
+  // clinicId berilsa — klinikaning o'z dailyVars dan olinadi (rentgen_soni va boshqalar ham ko'rinadi)
+  getAvailableVars(clinicId) {
+    // Agar clinicId bo'lmasa — eski hardcode
+    if (!clinicId || typeof DB === 'undefined') {
+      return [
+        { key: 'tushum',       label: 'Tushum',         desc: 'Kunlik umumiy tushum' },
+        { key: 'texnik',       label: 'Texnik',          desc: 'Texnik ishlar summasi' },
+        { key: 'implantCount', label: 'Implant soni',    desc: 'Implant miqdori' },
+        { key: 'implantValue', label: 'Implant qiymati', desc: 'Bir implant uchun qiymat' },
+        { key: 'percent',      label: 'Foiz (%)',        desc: 'Vrach ulushi foizi' },
+        { key: 'avans',        label: 'Avans',           desc: 'Olingan avans' },
+      ];
+    }
+    // Klinikaning o'z daily vars (faol) + doim kerakli tizim o'zgaruvchilari
+    const dailyVars = DB.getDailyVars(clinicId).filter(v => v.active);
+    const result = dailyVars.map(v => ({
+      key: v.id,
+      label: `${v.emoji || ''} ${v.label}`.trim(),
+      desc: v.unit ? `${v.label} (${v.unit})` : v.label,
+    }));
+    // Tizim o'zgaruvchilari (kunlik kiritishda emas, lekin formulada ishlatiladi)
+    const systemIds = dailyVars.map(v => v.id);
+    if (!systemIds.includes('percent'))
+      result.push({ key: 'percent', label: 'Foiz (%)', desc: 'Vrach ulushi foizi' });
+    result.push({ key: 'implantValue', label: 'Implant narxi', desc: 'Bir implant uchun qiymat (so\'m)' });
+    return result;
   },
+
 
   getPresetFormulas() {
     return [
